@@ -1,0 +1,11 @@
+*
+!*.*
+
+*.exe
+*.o
+*.a
+*.out
+*.so
+*.lib
+*.def
+*.depend
