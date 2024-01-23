@@ -124,7 +124,7 @@ type TaskNotifyFunc func(tsk *Task)
 type TaskErrorFunc func(tsk *Task, err error)
 type ConnNotifyEventFunc func(client *WCClient, status ClientStatus)
 type StringNotifyFunc func(client *WCClient, value string)
-type DataNotifyEventFunc func(tsk *Task, data any)
+type DataNotifyEventFunc func(tsk *Task, data []byte)
 type JSONArrayNotifyEventFunc func(tsk *Task, jsonresult []any)
 type JSONNotifyEventFunc func(tsk *Task, jsonresult any)
 
@@ -263,8 +263,8 @@ type WCClient struct {
 	onSuccessIOStream      TaskNotifyFunc /* IO stream terminated for some reason. */
 
 	/* data blobs block */
-	onSuccessSaveRecord    TaskNotifyFunc /* The request to save the media record has been completed. The response has arrived. */
-	onSuccessRequestRecord TaskNotifyFunc /* The request to get the media record has been completed. The response has arrived. */
+	onSuccessSaveRecord    TaskNotifyFunc      /* The request to save the media record has been completed. The response has arrived. */
+	onSuccessRequestRecord DataNotifyEventFunc /* The request to get the media record has been completed. The response has arrived. */
 
 	/* JSON block */
 	onSuccessUpdateRecords     JSONArrayNotifyEventFunc /* The request to update list of records has been completed. The response has arrived. */
@@ -492,9 +492,12 @@ func (*ErrAuth) Error() string {
 
 type Task struct {
 	//@private
-	client    *WCClient
-	request   *http.Request
-	response  *http.Response
+	client   *WCClient
+	request  *http.Request
+	response *http.Response
+
+	userdata any
+
 	lsterr    error
 	onSuccess TaskNotifyFunc
 	onError   TaskErrorFunc
@@ -615,6 +618,14 @@ func (tsk *Task) successJSONresponse(res map[string]any) bool {
 
 func (tsk *Task) GetClient() *WCClient {
 	return tsk.client
+}
+
+func (tsk *Task) GetUserData() any {
+	return tsk.userdata
+}
+
+func (tsk *Task) SetUserData(data any) {
+	tsk.userdata = data
 }
 
 /* WCClientConfig constructor */
@@ -921,11 +932,59 @@ func (c *WCClient) doPost(command string, payload []byte) (*http.Request, error)
 		io = bytes.NewReader(payload)
 	}
 
-	req, err = http.NewRequest("POST", c.cfg.GetUrl(command), io)
+	req, err = http.NewRequestWithContext(c.context, "POST", c.cfg.GetUrl(command), io)
 	if err != nil {
 		return nil, err
 	}
-	req = req.WithContext(c.context)
+
+	return req, nil
+}
+
+func (c *WCClient) doUpload(command string, reader io.ReadCloser, size int64, params map[string]string) (*http.Request, error) {
+	var err error
+	var req *http.Request
+
+	req_url, err := url.Parse(c.cfg.GetUrl(command))
+	if err != nil {
+		return nil, err
+	}
+	values := req_url.Query()
+	values.Add(JSON_RPC_SHASH, c.GetSID())
+	for k, v := range params {
+		values.Add(k, v)
+	}
+	req_url.RawQuery = values.Encode()
+
+	upstr := req_url.String()
+
+	req, err = http.NewRequestWithContext(c.context, "POST", upstr, reader)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = size
+
+	return req, nil
+}
+
+func (c *WCClient) doGet(command string, params map[string]string) (*http.Request, error) {
+	var err error
+	var req *http.Request
+
+	req_url, err := url.Parse(c.cfg.GetUrl(command))
+	if err != nil {
+		return nil, err
+	}
+	values := req_url.Query()
+	values.Add(JSON_RPC_SHASH, c.GetSID())
+	for k, v := range params {
+		values.Add(k, v)
+	}
+	req_url.RawQuery = values.Encode()
+
+	req, err = http.NewRequestWithContext(c.context, "POST", req_url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -1199,6 +1258,61 @@ func successAuth(tsk *Task) {
 	}
 }
 
+func successSaveRecord(tsk *Task) {
+	target := make(map[string]any)
+
+	if tsk.successJSONresponse(target) {
+		tsk.client.lockcbks()
+		defer tsk.client.unlockcbks()
+
+		if tsk.client.onSuccessSaveRecord != nil {
+			tsk.client.onSuccessSaveRecord(tsk)
+		}
+	}
+}
+
+func successReqRecordMeta(tsk *Task) {
+	target := make(map[string]any)
+
+	if tsk.successJSONresponse(target) {
+		tsk.client.lockcbks()
+		defer tsk.client.unlockcbks()
+
+		if tsk.client.onSuccessRequestRecordMeta != nil {
+			tsk.client.onSuccessRequestRecordMeta(tsk, target)
+		}
+	}
+}
+
+func successReqRecordData(tsk *Task) {
+	defer tsk.response.Body.Close()
+
+	const BUF_SIZE = 4096
+
+	data := make([]byte, 0, BUF_SIZE)
+	buf := make([]byte, BUF_SIZE)
+
+	for true {
+		n, err := tsk.response.Body.Read(buf)
+		if err != nil {
+			tsk.pushError(err)
+			return
+		}
+
+		if n > 0 {
+			data = append(data, buf[0:n]...)
+		}
+
+		if n < BUF_SIZE {
+			break
+		}
+	}
+
+	if tsk.client.onSuccessRequestRecord != nil {
+		tsk.client.onSuccessRequestRecord(tsk, data)
+	}
+}
+
 /* WCClient public methods */
 
 /* WCClient callbacks */
@@ -1313,6 +1427,24 @@ func (c *WCClient) SetOnUpdateMsgs(event JSONArrayNotifyEventFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessUpdateMsgs = event
+}
+
+func (c *WCClient) SetOnSuccessSaveRecord(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessSaveRecord = event
+}
+
+func (c *WCClient) SetOnReqRecordMeta(event JSONNotifyEventFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessRequestRecordMeta = event
+}
+
+func (c *WCClient) SetOnReqRecordData(event DataNotifyEventFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessRequestRecord = event
 }
 
 /* WCClient states */
@@ -1568,6 +1700,88 @@ func (c *WCClient) UpdateMsgs() error {
 	}
 
 	c.states <- STATE_MSGS
+
+	return nil
+}
+
+func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	params := map[string]string{
+		JSON_RPC_META: meta,
+	}
+
+	req, err := c.doUpload("addRecord.json", aBuf, aBufSize, params)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successSaveRecord,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
+
+	return nil
+}
+
+func (c *WCClient) RequestRecordMeta(rid int, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	rmRequest, err := c.initJSONRequest()
+	if err != nil {
+		return err
+	}
+	rmRequest[JSON_RPC_RID] = float64(rid)
+
+	b, err := json.Marshal(rmRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.doPost("getRecordMeta.json", b)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successReqRecordMeta,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
+
+	return nil
+}
+
+func (c *WCClient) RequestRecord(rid int, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	params := map[string]string{
+		JSON_RPC_RID: strconv.FormatInt(int64(rid), 10),
+	}
+
+	req, err := c.doGet("getRecordData.json", params)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successReqRecordData,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
 
 	return nil
 }

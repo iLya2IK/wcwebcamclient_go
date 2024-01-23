@@ -1,3 +1,13 @@
+/*===============================================================*/
+/* This is an example of how to use the wcWebCamClient library.  */
+/* In this example, a client is created, authorized on the       */
+/* server, and downloads a list of active devices.               */
+/*                                                               */
+/* Part of WebCamClientLib go module                             */
+/*                                                               */
+/* Copyright 2024 Ilya Medvedkov                                 */
+/*===============================================================*/
+
 package main
 
 import (
