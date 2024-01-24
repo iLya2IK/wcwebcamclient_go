@@ -1,5 +1,9 @@
-*
+**/*
 !*.*
+!test
+!lib
+!**/images
+!test/*
 
 *.exe
 *.o

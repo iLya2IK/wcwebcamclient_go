@@ -22,6 +22,220 @@ import (
 	"time"
 )
 
+type MediaStruct struct {
+	Device string  `json:"device"`
+	Rid    float64 `json:"rid"`
+	Stamp  string  `json:"stamp"`
+}
+
+type MediaMetaStruct struct {
+	Device string `json:"device"`
+	Meta   string `json:"meta"`
+	Stamp  string `json:"stamp"`
+}
+
+type MessageStruct struct {
+	Device string         `json:"device"`
+	Msg    string         `json:"msg"`
+	Stamp  string         `json:"stamp"`
+	Params map[string]any `json:"params"`
+}
+
+type OutMessageStruct struct {
+	Target string         `json:"target"`
+	Msg    string         `json:"msg"`
+	Params map[string]any `json:"params"`
+}
+
+type DeviceStruct struct {
+	Device string `json:"device"`
+	Meta   string `json:"meta"`
+}
+
+type StreamStruct struct {
+	Device   string  `json:"device"`
+	SubProto string  `json:"subproto"`
+	Delta    float64 `json:"delta"`
+}
+
+/*
+You can use JSONHelper methods to convert json maps to structs.
+The methods are not efficient and applyable only for testing proposes.
+You can use other external suitable modules to work with JSON maps and
+convert to structs vise versa
+*/
+func JSONDecode(jsonmap map[string]any, dest any) error {
+	jsonbody, err := json.Marshal(jsonmap)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(jsonbody, dest); err != nil {
+		return err
+	}
+	return nil
+}
+
+type jsonField struct {
+	name string
+	tp   reflect.Kind
+}
+
+func (mr *MediaStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_DEVICE, tp: reflect.String},
+		{name: JSON_RPC_RID, tp: reflect.Float64},
+		{name: JSON_RPC_STAMP, tp: reflect.String},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Device, _ = _any.(string)
+				case 1:
+					mr.Rid, _ = _any.(float64)
+				case 2:
+					mr.Stamp, _ = _any.(string)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
+func (mr *MediaMetaStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_DEVICE, tp: reflect.String},
+		{name: JSON_RPC_META, tp: reflect.String},
+		{name: JSON_RPC_STAMP, tp: reflect.String},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Device, _ = _any.(string)
+				case 1:
+					mr.Meta, _ = _any.(string)
+				case 2:
+					mr.Stamp, _ = _any.(string)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
+func (mr *MessageStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_DEVICE, tp: reflect.String},
+		{name: JSON_RPC_MSG, tp: reflect.String},
+		{name: JSON_RPC_STAMP, tp: reflect.String},
+		{name: JSON_RPC_PARAMS, tp: reflect.Map},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Device, _ = _any.(string)
+				case 1:
+					mr.Msg, _ = _any.(string)
+				case 2:
+					mr.Stamp, _ = _any.(string)
+				case 3:
+					mr.Params, _ = _any.(map[string]any)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
+func (mr *DeviceStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_DEVICE, tp: reflect.String},
+		{name: JSON_RPC_META, tp: reflect.String},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Device, _ = _any.(string)
+				case 1:
+					mr.Meta, _ = _any.(string)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
+func (mr *StreamStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_DEVICE, tp: reflect.String},
+		{name: JSON_RPC_SUBPROTO, tp: reflect.String},
+		{name: JSON_RPC_DELTA, tp: reflect.Float64},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Device, _ = _any.(string)
+				case 1:
+					mr.SubProto, _ = _any.(string)
+				case 2:
+					mr.Delta, _ = _any.(float64)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
 type ClientStatus int
 
 const (
@@ -118,15 +332,20 @@ var RESPONSE_ERRORS = [...]string{
 	"ERRORED_STREAM",
 	"NO_SUCH_DEVICE"}
 
+// The size of frame header (6 bytes)
+const WC_STREAM_FRAME_HEADER_SIZE uint16 = 6
+
+// The frame header sequence
+const WC_FRAME_START_SEQ uint16 = 0xaaaa
+
 type EmptyNotifyFunc func(client *WCClient)
 type NotifyEventFunc func(client *WCClient, data any)
-type TaskNotifyFunc func(tsk *Task)
-type TaskErrorFunc func(tsk *Task, err error)
+type TaskNotifyFunc func(tsk ITask)
 type ConnNotifyEventFunc func(client *WCClient, status ClientStatus)
 type StringNotifyFunc func(client *WCClient, value string)
-type DataNotifyEventFunc func(tsk *Task, data []byte)
-type JSONArrayNotifyEventFunc func(tsk *Task, jsonresult []any)
-type JSONNotifyEventFunc func(tsk *Task, jsonresult any)
+type DataNotifyEventFunc func(tsk ITask, data []byte)
+type JSONArrayNotifyEventFunc func(tsk ITask, jsonresult []any)
+type JSONNotifyEventFunc func(tsk ITask, jsonresult any)
 
 func ClientStatusText(status ClientStatus) string {
 	switch status {
@@ -142,6 +361,8 @@ func ClientStatusText(status ClientStatus) string {
 		return ""
 	}
 }
+
+/* WCClientConfig */
 
 type WCClientConfig struct {
 	hosturl *url.URL
@@ -183,6 +404,8 @@ func (c *ClientStatusThreadSafe) getValue() ClientStatus {
 	return c.value
 }
 
+/* StringThreadSafe */
+
 type StringThreadSafe struct {
 	mux sync.Mutex
 
@@ -222,6 +445,8 @@ func (c *StringThreadSafe) GetValue() string {
 	return c.Value
 }
 
+/* BoolThreadSafe */
+
 type BoolThreadSafe struct {
 	mux sync.Mutex
 
@@ -247,58 +472,46 @@ func (c *BoolThreadSafe) GetValue() bool {
 	return c.Value
 }
 
-type WCClient struct {
-	//@private
-	cbmux sync.Mutex
+/* FramesListThreadSafe */
 
-	onSuccessAuth TaskNotifyFunc      /* Successful authorization. */
-	onConnected   ConnNotifyEventFunc /* The connection state has been changed. */
-	onDisconnect  NotifyEventFunc     /* Client has been disconnected. */
-	onSIDSetted   StringNotifyFunc    /* The session id has been changed. */
-	onAddLog      StringNotifyFunc    /* Added new log entry. */
+type FramesListThreadSafe struct {
+	mux sync.Mutex
 
-	/* streams block */
-	onAfterLaunchInStream  TaskNotifyFunc /* Incoming stream started. */
-	onAfterLaunchOutStream TaskNotifyFunc /* Outgoing stream started. */
-	onSuccessIOStream      TaskNotifyFunc /* IO stream terminated for some reason. */
+	value *list.List
+}
 
-	/* data blobs block */
-	onSuccessSaveRecord    TaskNotifyFunc      /* The request to save the media record has been completed. The response has arrived. */
-	onSuccessRequestRecord DataNotifyEventFunc /* The request to get the media record has been completed. The response has arrived. */
+func (c *FramesListThreadSafe) PushBack(str *bytes.Buffer) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-	/* JSON block */
-	onSuccessUpdateRecords     JSONArrayNotifyEventFunc /* The request to update list of records has been completed. The response has arrived. */
-	onSuccessUpdateDevices     JSONArrayNotifyEventFunc /* The request to update list of online devices has been completed. The response has arrived. */
-	onSuccessUpdateStreams     JSONArrayNotifyEventFunc /* The request to update list of streaming devices has been completed. The response has arrived. */
-	onSuccessUpdateMsgs        JSONArrayNotifyEventFunc /* The request to update list of messages has been completed. The response has arrived. */
-	onSuccessSendMsg           JSONNotifyEventFunc      /* The request to send message has been completed. The response has arrived.  */
-	onSuccessRequestRecordMeta JSONNotifyEventFunc      /* The request to get metadata for the media record has been completed. The response has arrived. */
-	onSuccessGetConfig         JSONNotifyEventFunc      /* The request to get actual config has been completed. The response has arrived. */
-	onSuccessDeleteRecords     JSONNotifyEventFunc      /* The request to delete records has been completed. The response has arrived. */
+	c.value.PushBack(str)
+}
 
-	/* channels */
-	wrk       chan *Task
-	finished  chan *Task
-	states    chan ClientState
-	ferr      chan *Task
-	terminate chan bool
+func (c *FramesListThreadSafe) NotEmpty() bool {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-	/* state */
-	clientst   *ClientStatusThreadSafe
-	lstError   *StringThreadSafe
-	sid        *StringThreadSafe
-	lmsgstamp  *StringThreadSafe
-	lrecstamp  *StringThreadSafe
-	needtosync *BoolThreadSafe
-	log        *StringListThreadSafe
+	return c.value.Len() > 0
+}
 
-	/* config */
-	cfg *WCClientConfig
+func (c *FramesListThreadSafe) Pop() *bytes.Buffer {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-	/* http */
-	inclient   *http.Client
-	context    context.Context
-	cancelfunc context.CancelFunc
+	el := c.value.Front()
+	if el != nil {
+		c.value.Remove(el)
+		return el.Value.(*bytes.Buffer)
+	} else {
+		return nil
+	}
+}
+
+func (c *FramesListThreadSafe) Clear() {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	c.value = list.New()
 }
 
 type StringListThreadSafe struct {
@@ -341,6 +554,64 @@ func (c *StringListThreadSafe) Clear() {
 	defer c.mux.Unlock()
 
 	c.value = list.New()
+}
+
+/* WCClient */
+
+type WCClient struct {
+	//@private
+	cbmux  sync.Mutex
+	strmux sync.Mutex
+
+	onSuccessAuth TaskNotifyFunc      /* Successful authorization. */
+	onConnected   ConnNotifyEventFunc /* The connection state has been changed. */
+	onDisconnect  NotifyEventFunc     /* Client has been disconnected. */
+	onSIDSetted   StringNotifyFunc    /* The session id has been changed. */
+	onAddLog      StringNotifyFunc    /* Added new log entry. */
+
+	/* streams block */
+	onAfterLaunchInStream  TaskNotifyFunc /* Incoming stream started. */
+	onAfterLaunchOutStream TaskNotifyFunc /* Outgoing stream started. */
+	onSuccessIOStream      TaskNotifyFunc /* IO stream terminated for some reason. */
+
+	/* data blobs block */
+	onSuccessSaveRecord    TaskNotifyFunc      /* The request to save the media record has been completed. The response has arrived. */
+	onSuccessRequestRecord DataNotifyEventFunc /* The request to get the media record has been completed. The response has arrived. */
+
+	/* JSON block */
+	onSuccessUpdateRecords     JSONArrayNotifyEventFunc /* The request to update list of records has been completed. The response has arrived. */
+	onSuccessUpdateDevices     JSONArrayNotifyEventFunc /* The request to update list of online devices has been completed. The response has arrived. */
+	onSuccessUpdateStreams     JSONArrayNotifyEventFunc /* The request to update list of streaming devices has been completed. The response has arrived. */
+	onSuccessUpdateMsgs        JSONArrayNotifyEventFunc /* The request to update list of messages has been completed. The response has arrived. */
+	onSuccessSendMsg           JSONNotifyEventFunc      /* The request to send message has been completed. The response has arrived.  */
+	onSuccessRequestRecordMeta JSONNotifyEventFunc      /* The request to get metadata for the media record has been completed. The response has arrived. */
+	onSuccessGetConfig         JSONNotifyEventFunc      /* The request to get actual config has been completed. The response has arrived. */
+	onSuccessDeleteRecords     JSONNotifyEventFunc      /* The request to delete records has been completed. The response has arrived. */
+
+	/* channels */
+	wrk       chan ITask
+	finished  chan ITask
+	states    chan ClientState
+	ferr      chan ITask
+	terminate chan bool
+
+	/* state */
+	clientst   *ClientStatusThreadSafe
+	lstError   *StringThreadSafe
+	sid        *StringThreadSafe
+	lmsgstamp  *StringThreadSafe
+	lrecstamp  *StringThreadSafe
+	needtosync *BoolThreadSafe
+	log        *StringListThreadSafe
+	outstream  *OutStream
+
+	/* config */
+	cfg *WCClientConfig
+
+	/* http */
+	inclient   *http.Client
+	context    context.Context
+	cancelfunc context.CancelFunc
 }
 
 /* ErrNoPasswordDetected */
@@ -490,6 +761,34 @@ func (*ErrAuth) Error() string {
 	return "Authentification error"
 }
 
+/* Task */
+
+type TaskKind int
+
+const (
+	TaskDefault TaskKind = iota
+	TaskInputStream
+	TaskOutputStream
+)
+
+type taskSuccessFunc func(tsk ITask)
+type taskErrorFunc func(tsk ITask)
+
+type ITask interface {
+	execute(after chan ITask)
+	pushError(err error)
+	getRequest() *http.Request
+	getResponse() *http.Response
+	getOnSuccess() taskSuccessFunc
+	getOnError() taskErrorFunc
+
+	GetClient() *WCClient
+	GetUserData() any
+	SetUserData(data any)
+	GetKind() TaskKind
+	GetLastError() error
+}
+
 type Task struct {
 	//@private
 	client   *WCClient
@@ -497,20 +796,37 @@ type Task struct {
 	response *http.Response
 
 	userdata any
+	kind     TaskKind
 
 	lsterr    error
-	onSuccess TaskNotifyFunc
-	onError   TaskErrorFunc
+	onSuccess taskSuccessFunc
+	onError   taskErrorFunc
 }
 
 /* Task private methods */
+
+func (tsk *Task) getOnSuccess() taskSuccessFunc {
+	return tsk.onSuccess
+}
+
+func (tsk *Task) getOnError() taskErrorFunc {
+	return tsk.onError
+}
+
+func (tsk *Task) getResponse() *http.Response {
+	return tsk.response
+}
+
+func (tsk *Task) getRequest() *http.Request {
+	return tsk.request
+}
 
 func (tsk *Task) pushError(err error) {
 	tsk.lsterr = err
 	tsk.client.ferr <- tsk
 }
 
-func (tsk *Task) execute(after chan *Task) {
+func (tsk *Task) execute(after chan ITask) {
 	var err error
 	tsk.response, err = tsk.client.inclient.Do(tsk.request)
 
@@ -561,9 +877,9 @@ func getwcValue(res map[string]any, field string, def any, mandatory bool) (any,
 	} else {
 		if mandatory {
 			return def, ThrowErrMalformedResponse(EMKFieldExpected, field, nil)
-		} else {
-			return def, nil
 		}
+
+		return def, nil
 	}
 }
 
@@ -628,6 +944,54 @@ func (tsk *Task) SetUserData(data any) {
 	tsk.userdata = data
 }
 
+func (tsk *Task) GetKind() TaskKind {
+	return tsk.kind
+}
+
+func (tsk *Task) GetLastError() error {
+	return tsk.lsterr
+}
+
+/* OutStream */
+
+type OutStream struct {
+	current_frame *bytes.Buffer
+	outframes     *FramesListThreadSafe
+	lsterror      error
+	terminate     chan bool
+}
+
+func (c *OutStream) Read(b []byte) (n int, err error) {
+	for working := true; working; {
+		select {
+		case <-c.terminate:
+			{
+				working = false
+			}
+		default:
+			{
+				if c.current_frame != nil {
+					var n int = 0
+					n, c.lsterror = c.current_frame.Read(b)
+					if n == 0 {
+						if (c.lsterror == nil) || (c.lsterror == io.EOF) {
+							c.current_frame = nil
+							continue
+						} else {
+							return 0, c.lsterror
+						}
+					} else {
+						return n, c.lsterror
+					}
+				} else if c.outframes.NotEmpty() {
+					c.current_frame = c.outframes.Pop()
+				}
+			}
+		}
+	}
+	return 0, io.EOF
+}
+
 /* WCClientConfig constructor */
 
 // Create new empty client configuration
@@ -635,7 +999,7 @@ func ClientCfgNew() *WCClientConfig {
 	return &(WCClientConfig{locked: false})
 }
 
-/* WCClientConfig public metehods */
+/* WCClientConfig public methods */
 
 // Set new meta data for the device (sa. "authorize.json" - WCPD)
 func (c *WCClientConfig) SetMeta(val string) error {
@@ -807,10 +1171,10 @@ func ClientNew(cfg *WCClientConfig) (*WCClient, error) {
 
 	client := &http.Client{Transport: tr}
 
-	wcclient := &(WCClient{wrk: make(chan *Task, 16),
+	wcclient := &(WCClient{wrk: make(chan ITask, 16),
 		terminate:  make(chan bool, 2),
-		finished:   make(chan *Task, 16),
-		ferr:       make(chan *Task, 16),
+		finished:   make(chan ITask, 16),
+		ferr:       make(chan ITask, 16),
 		states:     make(chan ClientState, 32),
 		needtosync: &BoolThreadSafe{},
 		lmsgstamp:  &StringThreadSafe{},
@@ -820,6 +1184,7 @@ func ClientNew(cfg *WCClientConfig) (*WCClient, error) {
 		clientst:   &ClientStatusThreadSafe{value: StateWaiting},
 		inclient:   client,
 		log:        &StringListThreadSafe{value: list.New()},
+		outstream:  nil,
 		cfg:        cfg,
 	})
 
@@ -837,12 +1202,40 @@ func (c *WCClient) unlockcbks() {
 	c.cbmux.Unlock()
 }
 
+func (c *WCClient) lockstrs() {
+	c.strmux.Lock()
+}
+
+func (c *WCClient) unlockstrs() {
+	c.strmux.Unlock()
+}
+
 func (c *WCClient) stop() {
 	c.setClientStatus(StateDisconnected)
 }
 
 func (c *WCClient) start() {
 	c.setClientStatus(StateConnectedWrongSID)
+}
+
+func (c *WCClient) stopOutStream() {
+	c.lockstrs()
+	defer c.unlockstrs()
+	if c.outstream != nil {
+		c.outstream.terminate <- true
+		c.outstream = nil
+	}
+}
+
+func (c *WCClient) startOutStream() {
+	c.lockstrs()
+	defer c.unlockstrs()
+
+	c.outstream = &(OutStream{
+		outframes: &FramesListThreadSafe{value: list.New()},
+		lsterror:  nil,
+		terminate: make(chan bool, 2),
+	})
 }
 
 func (c *WCClient) setClientStatus(st ClientStatus) {
@@ -875,23 +1268,19 @@ func (c *WCClient) internalStart() {
 				go tsk.execute(c.finished)
 			case rtsk := <-c.finished:
 				{
-					if rtsk.response == nil {
+					if rtsk.getResponse() == nil {
 						rtsk.pushError(ThrowErrEmptyResponse())
 					} else {
-						if rtsk.response.StatusCode == http.StatusOK {
-							if rtsk.onSuccess != nil {
-								go rtsk.onSuccess(rtsk)
-							}
+						if rtsk.getResponse().StatusCode == http.StatusOK {
+							internalOnSuccess(rtsk)
 						} else {
-							rtsk.pushError(ThrowErrHttpStatus(rtsk.response.StatusCode))
+							rtsk.pushError(ThrowErrHttpStatus(rtsk.getResponse().StatusCode))
 						}
 					}
 				}
 			case etsk := <-c.ferr:
 				{
-					if etsk.onError != nil {
-						go etsk.onError(etsk, etsk.lsterr)
-					} else {
+					if internalOnError(etsk) {
 						c.Disconnect()
 					}
 				}
@@ -936,11 +1325,12 @@ func (c *WCClient) doPost(command string, payload []byte) (*http.Request, error)
 	if err != nil {
 		return nil, err
 	}
+	req.ContentLength = int64(len(payload))
 
 	return req, nil
 }
 
-func (c *WCClient) doUpload(command string, reader io.ReadCloser, size int64, params map[string]string) (*http.Request, error) {
+func (c *WCClient) doPutGet(method string, command string, reader io.Reader, size int64, params map[string]string) (*http.Request, error) {
 	var err error
 	var req *http.Request
 
@@ -955,65 +1345,96 @@ func (c *WCClient) doUpload(command string, reader io.ReadCloser, size int64, pa
 	}
 	req_url.RawQuery = values.Encode()
 
-	upstr := req_url.String()
-
-	req, err = http.NewRequestWithContext(c.context, "POST", upstr, reader)
+	req, err = http.NewRequestWithContext(c.context, method, req_url.String(), reader)
 	if err != nil {
 		return nil, err
 	}
-	req.ContentLength = size
+	if req.ContentLength == 0 && size > 0 {
+		req.ContentLength = size
+	}
 
 	return req, nil
+}
+
+func (c *WCClient) doDownload(command string, reader io.Reader, size int64, params map[string]string) (*http.Request, error) {
+	return c.doPutGet("POST", command, reader, size, params)
 }
 
 func (c *WCClient) doGet(command string, params map[string]string) (*http.Request, error) {
-	var err error
-	var req *http.Request
-
-	req_url, err := url.Parse(c.cfg.GetUrl(command))
-	if err != nil {
-		return nil, err
-	}
-	values := req_url.Query()
-	values.Add(JSON_RPC_SHASH, c.GetSID())
-	for k, v := range params {
-		values.Add(k, v)
-	}
-	req_url.RawQuery = values.Encode()
-
-	req, err = http.NewRequestWithContext(c.context, "POST", req_url.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
+	return c.doPutGet("POST", command, nil, 0, params)
 }
 
-func errorCommon(tsk *Task, err error) {
-	var lsterror string
-	if tsk.request == nil {
-		lsterror = fmt.Sprintf("Error occured: %v", err)
+func (c *WCClient) doUpload(command string, params map[string]string) (*http.Request, error) {
+	req, err := c.doPutGet("PUT", command, nil, 0, params)
+	if err != nil {
+		return nil, err
 	} else {
-		lsterror = fmt.Sprintf("Error occured - %s: %v", tsk.request.URL, err)
+		c.lockstrs()
+		defer c.unlockstrs()
+		snapshot := *c.outstream
+		req.Body = io.NopCloser(c.outstream)
+		req.GetBody = func() (io.ReadCloser, error) {
+			r := snapshot
+			return io.NopCloser(&r), nil
+		}
+		req.ContentLength = 0x500000000
+		return req, nil
 	}
-	tsk.client.setLastError(lsterror)
-	tsk.client.AddLog(lsterror)
+}
+
+func internalOnSuccess(self ITask) {
+	if self.getOnSuccess() != nil {
+		go self.getOnSuccess()(self)
+	}
+}
+
+func internalOnError(self ITask) bool {
+	if self.getOnError() != nil {
+		go self.getOnError()(self)
+		return false
+	}
+	return true
+}
+
+func errorCommon(tsk ITask) {
+	err := tsk.GetLastError()
+	var lsterror string
+	if tsk.getRequest() == nil {
+		lsterror = fmt.Sprintf("Error occurred: %v", err)
+	} else {
+		lsterror = fmt.Sprintf("Error occurred - %s: %v", tsk.getRequest().URL, err)
+	}
+	tsk.GetClient().setLastError(lsterror)
+	tsk.GetClient().AddLog(lsterror)
 	//
 	switch err.(type) {
 	default:
-		tsk.client.Disconnect()
+		tsk.GetClient().Disconnect()
 	case *ErrBadResponse:
 		if err.(*ErrBadResponse).code == NO_SUCH_SESSION {
-			tsk.client.setClientStatus(StateConnectedWrongSID)
+			tsk.GetClient().setClientStatus(StateConnectedWrongSID)
 		} else {
-			tsk.client.Disconnect()
+			tsk.GetClient().Disconnect()
 		}
 	}
 }
 
-func errorAuth(tsk *Task, err error) {
-	errorCommon(tsk, err)
-	tsk.client.Disconnect()
+func errorAuth(tsk ITask) {
+	errorCommon(tsk)
+	tsk.GetClient().Disconnect()
+}
+
+func errorIOCommon(tsk ITask) {
+	errorCommon(tsk)
+	switch tsk.GetKind() {
+	case TaskOutputStream:
+		{
+			tsk.GetClient().stopOutStream()
+		}
+	}
+	if tsk.GetClient().onSuccessIOStream != nil {
+		tsk.GetClient().onSuccessIOStream(tsk)
+	}
 }
 
 func (c *WCClient) initJSONRequest() (map[string]any, error) {
@@ -1151,141 +1572,141 @@ func (c *WCClient) updateRecords() error {
 
 /* WCClient responses */
 
-func successGetMsgs(tsk *Task) {
+func successGetMsgs(tsk ITask) {
 
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
+	if tsk.(*Task).successJSONresponse(target) {
 		arr, err := getwcObjArray(target, JSON_RPC_MSGS)
 		if err != nil {
 			tsk.pushError(err)
 			return
 		}
 
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessUpdateMsgs != nil {
-			tsk.client.onSuccessUpdateMsgs(tsk, arr)
+		if tsk.GetClient().onSuccessUpdateMsgs != nil {
+			tsk.GetClient().onSuccessUpdateMsgs(tsk, arr)
 		}
 	}
 }
 
-func successGetRecords(tsk *Task) {
+func successGetRecords(tsk ITask) {
 
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
+	if tsk.(*Task).successJSONresponse(target) {
 		arr, err := getwcObjArray(target, JSON_RPC_RECORDS)
 		if err != nil {
 			tsk.pushError(err)
 			return
 		}
 
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessUpdateRecords != nil {
-			tsk.client.onSuccessUpdateRecords(tsk, arr)
+		if tsk.GetClient().onSuccessUpdateRecords != nil {
+			tsk.GetClient().onSuccessUpdateRecords(tsk, arr)
 		}
 	}
 }
 
-func successGetDevices(tsk *Task) {
+func successGetDevices(tsk ITask) {
 
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
+	if tsk.(*Task).successJSONresponse(target) {
 		arr, err := getwcObjArray(target, JSON_RPC_DEVICES)
 		if err != nil {
 			tsk.pushError(err)
 			return
 		}
 
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessUpdateDevices != nil {
-			tsk.client.onSuccessUpdateDevices(tsk, arr)
+		if tsk.GetClient().onSuccessUpdateDevices != nil {
+			tsk.GetClient().onSuccessUpdateDevices(tsk, arr)
 		}
 	}
 }
 
-func successGetStreams(tsk *Task) {
+func successGetStreams(tsk ITask) {
 
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
+	if tsk.(*Task).successJSONresponse(target) {
 		arr, err := getwcObjArray(target, JSON_RPC_DEVICES)
 		if err != nil {
 			tsk.pushError(err)
 			return
 		}
 
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessUpdateStreams != nil {
-			tsk.client.onSuccessUpdateStreams(tsk, arr)
+		if tsk.GetClient().onSuccessUpdateStreams != nil {
+			tsk.GetClient().onSuccessUpdateStreams(tsk, arr)
 		}
 	}
 }
 
-func successAuth(tsk *Task) {
+func successAuth(tsk ITask) {
 
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
+	if tsk.(*Task).successJSONresponse(target) {
 		str, err := getwcValue(target, JSON_RPC_SHASH, "", true)
 		if err != nil {
 			tsk.pushError(err)
 			return
 		}
 
-		tsk.client.sid.SetValue(str.(string))
-		tsk.client.setClientStatus(StateConnected)
+		tsk.GetClient().sid.SetValue(str.(string))
+		tsk.GetClient().setClientStatus(StateConnected)
 
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSIDSetted != nil {
-			tsk.client.onSIDSetted(tsk.client, tsk.client.GetSID())
+		if tsk.GetClient().onSIDSetted != nil {
+			tsk.GetClient().onSIDSetted(tsk.GetClient(), tsk.GetClient().GetSID())
 		}
 
-		if tsk.client.onSuccessAuth != nil {
-			tsk.client.onSuccessAuth(tsk)
+		if tsk.GetClient().onSuccessAuth != nil {
+			tsk.GetClient().onSuccessAuth(tsk)
 		}
 	}
 }
 
-func successSaveRecord(tsk *Task) {
+func successSaveRecord(tsk ITask) {
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+	if tsk.(*Task).successJSONresponse(target) {
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessSaveRecord != nil {
-			tsk.client.onSuccessSaveRecord(tsk)
+		if tsk.GetClient().onSuccessSaveRecord != nil {
+			tsk.GetClient().onSuccessSaveRecord(tsk)
 		}
 	}
 }
 
-func successReqRecordMeta(tsk *Task) {
+func successReqRecordMeta(tsk ITask) {
 	target := make(map[string]any)
 
-	if tsk.successJSONresponse(target) {
-		tsk.client.lockcbks()
-		defer tsk.client.unlockcbks()
+	if tsk.(*Task).successJSONresponse(target) {
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
 
-		if tsk.client.onSuccessRequestRecordMeta != nil {
-			tsk.client.onSuccessRequestRecordMeta(tsk, target)
+		if tsk.GetClient().onSuccessRequestRecordMeta != nil {
+			tsk.GetClient().onSuccessRequestRecordMeta(tsk, target)
 		}
 	}
 }
 
-func successReqRecordData(tsk *Task) {
-	defer tsk.response.Body.Close()
+func successReqRecordData(tsk ITask) {
+	defer tsk.getResponse().Body.Close()
 
 	const BUF_SIZE = 4096
 
@@ -1293,7 +1714,7 @@ func successReqRecordData(tsk *Task) {
 	buf := make([]byte, BUF_SIZE)
 
 	for true {
-		n, err := tsk.response.Body.Read(buf)
+		n, err := tsk.getResponse().Body.Read(buf)
 		if err != nil {
 			tsk.pushError(err)
 			return
@@ -1308,8 +1729,23 @@ func successReqRecordData(tsk *Task) {
 		}
 	}
 
-	if tsk.client.onSuccessRequestRecord != nil {
-		tsk.client.onSuccessRequestRecord(tsk, data)
+	if tsk.GetClient().onSuccessRequestRecord != nil {
+		tsk.GetClient().onSuccessRequestRecord(tsk, data)
+	}
+}
+
+func successIOFinished(tsk ITask) {
+	defer tsk.getResponse().Body.Close()
+
+	switch tsk.GetKind() {
+	case TaskOutputStream:
+		{
+			tsk.GetClient().stopOutStream()
+		}
+	}
+
+	if tsk.GetClient().onSuccessIOStream != nil {
+		tsk.GetClient().onSuccessIOStream(tsk)
 	}
 }
 
@@ -1445,6 +1881,18 @@ func (c *WCClient) SetOnReqRecordData(event DataNotifyEventFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessRequestRecord = event
+}
+
+func (c *WCClient) SetOnAfterLaunchOutStream(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onAfterLaunchOutStream = event
+}
+
+func (c *WCClient) SetOnSuccessIOStream(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessIOStream = event
 }
 
 /* WCClient states */
@@ -1595,6 +2043,8 @@ func (c *WCClient) Disconnect() error {
 		return ThrowErrWrongStatus(st)
 	}
 
+	c.StopStreaming()
+
 	if c.cancelfunc != nil {
 		c.cancelfunc()
 	}
@@ -1658,6 +2108,8 @@ func (c *WCClient) InvalidateState(aStateId ClientState) error {
 		c.lmsgstamp.Clear()
 	case STATE_RECORDSSTAMP:
 		c.lrecstamp.Clear()
+	case STATE_STREAMING:
+		c.StopStreaming()
 	default:
 		err = ThrowErrParam(aStateId)
 	}
@@ -1706,6 +2158,9 @@ func (c *WCClient) UpdateMsgs() error {
 
 func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
+		if aBuf != nil {
+			aBuf.Close()
+		}
 		return ThrowErrWrongStatus(st)
 	}
 
@@ -1713,8 +2168,11 @@ func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, u
 		JSON_RPC_META: meta,
 	}
 
-	req, err := c.doUpload("addRecord.json", aBuf, aBufSize, params)
+	req, err := c.doDownload("addRecord.json", aBuf, aBufSize, params)
 	if err != nil {
+		if aBuf != nil {
+			aBuf.Close()
+		}
 		return err
 	}
 
@@ -1786,40 +2244,73 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 	return nil
 }
 
-/*
-func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int) bool {
+func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
 
+	params := map[string]string{
+		JSON_RPC_SUBPROTO: aSubProto,
+		JSON_RPC_DELTA:    strconv.FormatInt(int64(aDelta), 10),
+	}
+
+	c.startOutStream()
+
+	req, err := c.doUpload("input.raw", params)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{
+		client:    c,
+		kind:      TaskOutputStream,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successIOFinished,
+		onError:   errorIOCommon})
+
+	c.wrk <- tsk
+
+	if c.onAfterLaunchOutStream != nil {
+		c.onAfterLaunchOutStream(tsk)
+	}
+
+	return nil
 }
 
-func (c *WCClient) LaunchInStream(aDeviceName string) bool {
-
-}
-
-func (c *WCClient) GetConfig() {
-
-}
-
-func (c *WCClient) SetConfig(aStr string) {
-
-}
-
-func (c *WCClient) DeleteRecords(aIndices []int) {
-
-}
-
-func (c *WCClient) SendMsg(aMsg any) {
-
-}
-
-func (c *WCClient) RequestRecord(rid int) {
-
-}
-
-func (c *WCClient) SaveAsSnapshot(aBuf any) {
-
+func (c *WCClient) PushOutData(data *bytes.Buffer) error {
+	c.lockstrs()
+	defer c.unlockstrs()
+	if c.outstream != nil {
+		c.outstream.outframes.PushBack(data)
+	}
+	return nil
 }
 
 func (c *WCClient) StopStreaming() {
+	c.stopOutStream()
+	// c.stopInStream()
+}
+
+/*
+func (c *WCClient) LaunchInStream(aDeviceName string) error {
 
 }
+
+func (c *WCClient) GetConfig() error {
+
+}
+
+func (c *WCClient) SetConfig(aStr string) error {
+
+}
+
+func (c *WCClient) DeleteRecords(aIndices []int) error {
+
+}
+
+func (c *WCClient) SendMsg(aMsg any) error {
+
+}
+
 */
