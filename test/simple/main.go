@@ -18,7 +18,7 @@ import (
 	"libs.com/wclib"
 )
 
-func AuthSuccess(tsk *wclib.Task) {
+func AuthSuccess(tsk wclib.ITask) {
 	fmt.Println("SID ", tsk.GetClient().GetSID())
 }
 
@@ -37,7 +37,7 @@ func OnClientStateChange(c *wclib.WCClient, st wclib.ClientStatus) {
 	}
 }
 
-func OnUpdateMsgs(tsk *wclib.Task, res []any) {
+func OnUpdateMsgs(tsk wclib.ITask, res []map[string]any) {
 	for _, v := range res {
 		fmt.Println(v)
 	}
@@ -49,7 +49,7 @@ func check(e error) {
 	}
 }
 
-func OnUpdateDevices(tsk *wclib.Task, res []any) {
+func OnUpdateDevices(tsk wclib.ITask, res []map[string]any) {
 	for _, v := range res {
 		fmt.Println(v)
 	}
@@ -90,7 +90,7 @@ func main() {
 	fmt.Println("Client started")
 
 	type fire struct {
-		command func() error
+		command func(data any) error
 		timeout int64
 		mask    []wclib.ClientStatus
 	}
@@ -107,7 +107,9 @@ func main() {
 		mask:    []wclib.ClientStatus{wclib.StateConnected},
 	}
 	sheduler <- &fire{
-		command: c.Disconnect,
+		command: func(data any) error {
+			return c.Disconnect()
+		},
 		timeout: 5000,
 		mask: []wclib.ClientStatus{
 			wclib.StateConnected,
@@ -137,7 +139,7 @@ func main() {
 						go func(v *fire) {
 							time.Sleep(time.Duration(v.timeout) * time.Millisecond)
 							if c.IsClientStatusInRange(v.mask) {
-								check(v.command())
+								check(v.command(nil))
 							}
 							sheduler <- v
 						}(v)

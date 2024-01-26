@@ -11,7 +11,9 @@ import (
 	"container/list"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,6 +83,9 @@ type jsonField struct {
 	tp   reflect.Kind
 }
 
+/*
+Convert the golang map of any to the MediaStruct
+*/
 func (mr *MediaStruct) JSONDecode(jsonmap map[string]any) error {
 	decl := []jsonField{
 		{name: JSON_RPC_DEVICE, tp: reflect.String},
@@ -112,6 +117,9 @@ func (mr *MediaStruct) JSONDecode(jsonmap map[string]any) error {
 	return nil
 }
 
+/*
+Convert the golang map of any to the MediaMetaStruct
+*/
 func (mr *MediaMetaStruct) JSONDecode(jsonmap map[string]any) error {
 	decl := []jsonField{
 		{name: JSON_RPC_DEVICE, tp: reflect.String},
@@ -143,6 +151,9 @@ func (mr *MediaMetaStruct) JSONDecode(jsonmap map[string]any) error {
 	return nil
 }
 
+/*
+Convert the golang map of any to the MessageStruct
+*/
 func (mr *MessageStruct) JSONDecode(jsonmap map[string]any) error {
 	decl := []jsonField{
 		{name: JSON_RPC_DEVICE, tp: reflect.String},
@@ -177,6 +188,9 @@ func (mr *MessageStruct) JSONDecode(jsonmap map[string]any) error {
 	return nil
 }
 
+/*
+Convert the golang map of any to the DeviceStruct
+*/
 func (mr *DeviceStruct) JSONDecode(jsonmap map[string]any) error {
 	decl := []jsonField{
 		{name: JSON_RPC_DEVICE, tp: reflect.String},
@@ -205,6 +219,9 @@ func (mr *DeviceStruct) JSONDecode(jsonmap map[string]any) error {
 	return nil
 }
 
+/*
+Convert the golang map of any to the StreamStruct
+*/
 func (mr *StreamStruct) JSONDecode(jsonmap map[string]any) error {
 	decl := []jsonField{
 		{name: JSON_RPC_DEVICE, tp: reflect.String},
@@ -338,14 +355,20 @@ const WC_STREAM_FRAME_HEADER_SIZE uint16 = 6
 // The frame header sequence
 const WC_FRAME_START_SEQ uint16 = 0xaaaa
 
+// The frame buffer size (the maximum size of one frame)
+const WC_FRAME_BUFFER_SIZE int64 = 0x200000
+
+// The initial frame buffer size
+const WC_FRAME_BUFFER_INIT_SIZE int64 = 4096
+
 type EmptyNotifyFunc func(client *WCClient)
 type NotifyEventFunc func(client *WCClient, data any)
 type TaskNotifyFunc func(tsk ITask)
 type ConnNotifyEventFunc func(client *WCClient, status ClientStatus)
 type StringNotifyFunc func(client *WCClient, value string)
-type DataNotifyEventFunc func(tsk ITask, data []byte)
-type JSONArrayNotifyEventFunc func(tsk ITask, jsonresult []any)
-type JSONNotifyEventFunc func(tsk ITask, jsonresult any)
+type DataNotifyEventFunc func(tsk ITask, data *bytes.Buffer)
+type JSONArrayNotifyEventFunc func(tsk ITask, jsonresult []map[string]any)
+type JSONNotifyEventFunc func(tsk ITask, jsonresult map[string]any)
 
 func ClientStatusText(status ClientStatus) string {
 	switch status {
@@ -556,6 +579,11 @@ func (c *StringListThreadSafe) Clear() {
 	c.value = list.New()
 }
 
+type clientStateRequest struct {
+	state    ClientState
+	userdata any
+}
+
 /* WCClient */
 
 type WCClient struct {
@@ -583,15 +611,15 @@ type WCClient struct {
 	onSuccessUpdateDevices     JSONArrayNotifyEventFunc /* The request to update list of online devices has been completed. The response has arrived. */
 	onSuccessUpdateStreams     JSONArrayNotifyEventFunc /* The request to update list of streaming devices has been completed. The response has arrived. */
 	onSuccessUpdateMsgs        JSONArrayNotifyEventFunc /* The request to update list of messages has been completed. The response has arrived. */
-	onSuccessSendMsg           JSONNotifyEventFunc      /* The request to send message has been completed. The response has arrived.  */
+	onSuccessSendMsg           TaskNotifyFunc           /* The request to send message has been completed. The response has arrived.  */
 	onSuccessRequestRecordMeta JSONNotifyEventFunc      /* The request to get metadata for the media record has been completed. The response has arrived. */
 	onSuccessGetConfig         JSONNotifyEventFunc      /* The request to get actual config has been completed. The response has arrived. */
-	onSuccessDeleteRecords     JSONNotifyEventFunc      /* The request to delete records has been completed. The response has arrived. */
+	onSuccessDeleteRecords     TaskNotifyFunc           /* The request to delete records has been completed. The response has arrived. */
 
 	/* channels */
 	wrk       chan ITask
 	finished  chan ITask
-	states    chan ClientState
+	states    chan *clientStateRequest
 	ferr      chan ITask
 	terminate chan bool
 
@@ -604,6 +632,7 @@ type WCClient struct {
 	needtosync *BoolThreadSafe
 	log        *StringListThreadSafe
 	outstream  *OutStream
+	instream   *InStream
 
 	/* config */
 	cfg *WCClientConfig
@@ -624,6 +653,30 @@ func ThrowErrWrongAuthData() *ErrWrongAuthData {
 
 func (e *ErrWrongAuthData) Error() string {
 	return "The username or (and) password are not provided"
+}
+
+/* ErrNotStreaming */
+
+type ErrNotStreaming struct{}
+
+func ThrowErrNotStreaming() *ErrNotStreaming {
+	return &ErrNotStreaming{}
+}
+
+func (e *ErrNotStreaming) Error() string {
+	return "The device is not streaming"
+}
+
+/* ErrWrongOutMsgFormat */
+
+type ErrWrongOutMsgFormat struct{}
+
+func ThrowErrWrongOutMsgFormat() *ErrWrongOutMsgFormat {
+	return &ErrWrongOutMsgFormat{}
+}
+
+func (e *ErrWrongOutMsgFormat) Error() string {
+	return "Wrong type for outgoing messages. Allowed: map[string]any, []map[string]any, *OutMessageStruct, []*OutMessageStruct"
 }
 
 /* ErrWrongStatus */
@@ -758,7 +811,7 @@ func ThrowErrAuth() *ErrAuth {
 }
 
 func (*ErrAuth) Error() string {
-	return "Authentification error"
+	return "Authentication error"
 }
 
 /* Task */
@@ -837,22 +890,29 @@ func (tsk *Task) execute(after chan ITask) {
 	}
 }
 
-func getwcObjArray(res map[string]any, field string) ([]any, error) {
+func getwcObjArray(res map[string]any, field string) ([]map[string]any, error) {
 	const cARRAYOFOBJS = `"array of objects"`
 	v, ok := res[field]
 	if ok {
-		switch reflect.TypeOf(v).Kind() {
-		case reflect.Array, reflect.Slice:
-			{
-				if len(v.([]any)) > 0 {
-					if reflect.TypeOf(v.([]any)[0]).Kind() == reflect.Map {
-						return v.([]any), nil
-					} else {
-						return nil, ThrowErrMalformedResponse(EMKWrongType, field, cARRAYOFOBJS)
+		switch val := v.(type) {
+		case []any:
+			if len(val) > 0 {
+				out := make([]map[string]any, len(val))
+				for i := range val {
+					switch elem := val[i].(type) {
+					case map[string]any:
+						{
+							out[i] = elem
+						}
+					default:
+						{
+							return nil, ThrowErrMalformedResponse(EMKWrongType, field, cARRAYOFOBJS)
+						}
 					}
-				} else {
-					return v.([]any), nil
 				}
+				return out, nil
+			} else {
+				return make([]map[string]any, 0), nil
 			}
 		default:
 			return nil, ThrowErrMalformedResponse(EMKWrongType, field, cARRAYOFOBJS)
@@ -952,13 +1012,182 @@ func (tsk *Task) GetLastError() error {
 	return tsk.lsterr
 }
 
+/* InStream */
+
+type frameStateType int
+
+const (
+	waitingStartOfFrame frameStateType = iota
+	waitingData
+)
+
+type InStream struct {
+	owner           ITask
+	incomeframes    *FramesListThreadSafe
+	terminate       chan bool
+	err             error
+	frameData       []byte
+	frameBufferSize int64
+	frameSize       int64
+	frameState      frameStateType
+
+	onNewFrame TaskNotifyFunc
+}
+
+func (c *InStream) Write(b []byte) (n int, err error) {
+	var framePos int64 = 0
+	truncateFrameBuffer := func() {
+		if framePos > 0 {
+			if (c.frameBufferSize - framePos) > 0 {
+				c.frameBufferSize -= framePos
+
+				copy(c.frameData[0:], c.frameData[framePos:framePos+c.frameBufferSize])
+			} else {
+				c.frameBufferSize = 0
+			}
+			framePos = 0
+		}
+	}
+	bufferFreeSize := func() int64 {
+		return WC_FRAME_BUFFER_SIZE - c.frameBufferSize
+	}
+
+	var P int64
+	var C uint32
+	var W uint16
+
+	var ChunkSz int64 = int64(len(b))
+	var ChunkPos int64 = 0
+	for proceed := true; proceed; {
+		if bufferFreeSize() == 0 {
+			return int(ChunkPos), errors.New("Frame buffer overflow")
+		}
+
+		if ChunkPos < ChunkSz {
+			P = ChunkSz - ChunkPos
+			if P > bufferFreeSize() {
+				P = bufferFreeSize()
+			}
+
+			sz := (c.frameBufferSize + P) - int64(len(c.frameData))
+
+			if sz > 0 {
+				grow := (sz/WC_FRAME_BUFFER_INIT_SIZE + 1) * WC_FRAME_BUFFER_INIT_SIZE
+				c.frameData = append(c.frameData, make([]byte, grow)...)
+			}
+
+			copy(c.frameData[c.frameBufferSize:], b[ChunkPos:ChunkPos+P])
+			c.frameBufferSize += P
+			ChunkPos += P
+		}
+
+		switch c.frameState {
+		case waitingStartOfFrame:
+			{
+				c.frameSize = 0
+				if (c.frameBufferSize - framePos) >= int64(WC_STREAM_FRAME_HEADER_SIZE) {
+					W = binary.LittleEndian.Uint16(c.frameData[framePos:])
+					if W == uint16(WC_FRAME_START_SEQ) {
+						C = binary.LittleEndian.Uint32(c.frameData[framePos+2:])
+						if C > uint32(WC_FRAME_BUFFER_SIZE-int64(WC_STREAM_FRAME_HEADER_SIZE)) {
+							return int(ChunkPos), errors.New("Frame is too big")
+						} else {
+							c.frameSize = int64(C)
+							c.frameState = waitingData
+						}
+					} else {
+						return int(ChunkPos), errors.New("Frame has wrong header")
+					}
+				} else {
+					truncateFrameBuffer()
+					if ChunkPos == ChunkSz {
+						proceed = false
+					}
+				}
+			}
+		case waitingData:
+			{
+				if (c.frameBufferSize - framePos) >= (c.frameSize + int64(WC_STREAM_FRAME_HEADER_SIZE)) {
+					framePos += int64(WC_STREAM_FRAME_HEADER_SIZE)
+					c.pushFrame(framePos)
+					framePos += c.frameSize
+					c.frameState = waitingStartOfFrame
+				} else {
+					truncateFrameBuffer()
+					if ChunkPos == ChunkSz {
+						proceed = false
+					}
+				}
+				break
+			}
+		}
+	}
+
+	return int(ChunkPos), nil
+}
+
+func (c *InStream) pushFrame(from int64) {
+	sz := c.frameSize
+	new_frame := bytes.NewBuffer(make([]byte, 0, sz))
+	new_frame.Write(c.frameData[from : from+sz])
+	c.incomeframes.PushBack(new_frame)
+
+	if c.onNewFrame != nil {
+		c.onNewFrame(c.owner)
+	}
+}
+
+func (c *InStream) WriteFrom(body io.ReadCloser) error {
+	const INCOMING_CHUNK_SIZE = 4096
+
+	defer body.Close()
+
+	buffer := make([]byte, INCOMING_CHUNK_SIZE, INCOMING_CHUNK_SIZE)
+
+	for working := true; working; {
+		select {
+		case <-c.terminate:
+			{
+				c.err = io.ErrClosedPipe
+				working = false
+			}
+		default:
+			{
+				n, err := body.Read(buffer[0:INCOMING_CHUNK_SIZE])
+				if err == nil || err == io.EOF {
+					if n > 0 {
+						off := 0
+						for write_loop := true; write_loop; {
+							nn, err := c.Write(buffer[off : n-off])
+							if err != nil {
+								c.err = err
+								working = false
+								write_loop = false
+							} else {
+								off += nn
+								if off >= n {
+									write_loop = false
+								}
+							}
+						}
+					}
+					time.Sleep(1 * time.Millisecond)
+				} else {
+					c.err = err
+					working = false
+				}
+			}
+		}
+	}
+	return c.err
+}
+
 /* OutStream */
 
 type OutStream struct {
-	current_frame *bytes.Buffer
-	outframes     *FramesListThreadSafe
-	lsterror      error
-	terminate     chan bool
+	outframes *FramesListThreadSafe
+	terminate chan bool
+	frameseq  chan *bytes.Buffer
 }
 
 func (c *OutStream) Read(b []byte) (n int, err error) {
@@ -968,27 +1197,35 @@ func (c *OutStream) Read(b []byte) (n int, err error) {
 			{
 				working = false
 			}
-		default:
+		case fr := <-c.frameseq:
 			{
-				if c.current_frame != nil {
+				if fr != nil {
 					var n int = 0
-					n, c.lsterror = c.current_frame.Read(b)
+					n, err := fr.Read(b)
 					if n == 0 {
-						if (c.lsterror == nil) || (c.lsterror == io.EOF) {
-							c.current_frame = nil
+						if (err == nil) || (err == io.EOF) {
+							c.frameseq <- nil
 							continue
 						} else {
-							return 0, c.lsterror
+							return 0, err
 						}
 					} else {
-						return n, c.lsterror
+						c.frameseq <- fr
+						return n, err
 					}
 				} else if c.outframes.NotEmpty() {
-					c.current_frame = c.outframes.Pop()
+					fr := c.outframes.Pop()
+					c.frameseq <- fr
 				}
+			}
+		default:
+			{
+				time.Sleep(1 * time.Millisecond)
 			}
 		}
 	}
+	close(c.terminate)
+	close(c.frameseq)
 	return 0, io.EOF
 }
 
@@ -1175,7 +1412,7 @@ func ClientNew(cfg *WCClientConfig) (*WCClient, error) {
 		terminate:  make(chan bool, 2),
 		finished:   make(chan ITask, 16),
 		ferr:       make(chan ITask, 16),
-		states:     make(chan ClientState, 32),
+		states:     make(chan *clientStateRequest, 32),
 		needtosync: &BoolThreadSafe{},
 		lmsgstamp:  &StringThreadSafe{},
 		lrecstamp:  &StringThreadSafe{},
@@ -1227,14 +1464,36 @@ func (c *WCClient) stopOutStream() {
 	}
 }
 
+func (c *WCClient) stopInStream() {
+	c.lockstrs()
+	defer c.unlockstrs()
+	if c.instream != nil {
+		c.instream.terminate <- true
+		c.instream = nil
+	}
+}
+
 func (c *WCClient) startOutStream() {
 	c.lockstrs()
 	defer c.unlockstrs()
 
 	c.outstream = &(OutStream{
+		frameseq:  make(chan *bytes.Buffer, 16),
 		outframes: &FramesListThreadSafe{value: list.New()},
-		lsterror:  nil,
 		terminate: make(chan bool, 2),
+	})
+}
+
+func (c *WCClient) startInStream(tsk ITask, callback TaskNotifyFunc) {
+	c.lockstrs()
+	defer c.unlockstrs()
+
+	c.instream = &(InStream{
+		owner:        tsk,
+		incomeframes: &FramesListThreadSafe{value: list.New()},
+		terminate:    make(chan bool, 2),
+		frameData:    make([]byte, WC_FRAME_BUFFER_INIT_SIZE),
+		onNewFrame:   callback,
 	})
 }
 
@@ -1292,15 +1551,15 @@ func (c *WCClient) internalStart() {
 				}
 			case state := <-c.states:
 				{
-					switch state {
+					switch state.state {
 					case STATE_MSGS:
-						go c.updateMsgs()
+						go c.updateMsgs(state.userdata)
 					case STATE_DEVICES:
-						go c.updateDevices()
+						go c.updateDevices(state.userdata)
 					case STATE_RECORDS:
-						go c.updateRecords()
+						go c.updateRecords(state.userdata)
 					case STATE_STREAMS:
-						go c.updateStreams()
+						go c.updateStreams(state.userdata)
 					}
 				}
 			default:
@@ -1360,8 +1619,12 @@ func (c *WCClient) doDownload(command string, reader io.Reader, size int64, para
 	return c.doPutGet("POST", command, reader, size, params)
 }
 
-func (c *WCClient) doGet(command string, params map[string]string) (*http.Request, error) {
+func (c *WCClient) doPostWithParams(command string, params map[string]string) (*http.Request, error) {
 	return c.doPutGet("POST", command, nil, 0, params)
+}
+
+func (c *WCClient) doGet(command string, params map[string]string) (*http.Request, error) {
+	return c.doPutGet("GET", command, nil, 0, params)
 }
 
 func (c *WCClient) doUpload(command string, params map[string]string) (*http.Request, error) {
@@ -1464,7 +1727,7 @@ func (c *WCClient) simpleJSONRequest() ([]byte, error) {
 	return b, nil
 }
 
-func (c *WCClient) updateMsgs() error {
+func (c *WCClient) updateMsgs(data any) error {
 	umRequest, err := c.initJSONRequest()
 	if err != nil {
 		return err
@@ -1494,6 +1757,7 @@ func (c *WCClient) updateMsgs() error {
 
 	tsk := &(Task{client: c,
 		request:   req,
+		userdata:  data,
 		onSuccess: successGetMsgs,
 		onError:   errorCommon})
 	c.wrk <- tsk
@@ -1501,7 +1765,7 @@ func (c *WCClient) updateMsgs() error {
 	return nil
 }
 
-func (c *WCClient) updateStreams() error {
+func (c *WCClient) updateStreams(data any) error {
 	b, err := c.simpleJSONRequest()
 	if err != nil {
 		return err
@@ -1514,6 +1778,7 @@ func (c *WCClient) updateStreams() error {
 
 	tsk := &(Task{client: c,
 		request:   req,
+		userdata:  data,
 		onSuccess: successGetStreams,
 		onError:   errorCommon})
 	c.wrk <- tsk
@@ -1521,7 +1786,7 @@ func (c *WCClient) updateStreams() error {
 	return nil
 }
 
-func (c *WCClient) updateDevices() error {
+func (c *WCClient) updateDevices(data any) error {
 	b, err := c.simpleJSONRequest()
 	if err != nil {
 		return err
@@ -1534,6 +1799,7 @@ func (c *WCClient) updateDevices() error {
 
 	tsk := &(Task{client: c,
 		request:   req,
+		userdata:  data,
 		onSuccess: successGetDevices,
 		onError:   errorCommon})
 	c.wrk <- tsk
@@ -1541,7 +1807,7 @@ func (c *WCClient) updateDevices() error {
 	return nil
 }
 
-func (c *WCClient) updateRecords() error {
+func (c *WCClient) updateRecords(data any) error {
 	urRequest, err := c.initJSONRequest()
 	if err != nil {
 		return err
@@ -1563,6 +1829,7 @@ func (c *WCClient) updateRecords() error {
 
 	tsk := &(Task{client: c,
 		request:   req,
+		userdata:  data,
 		onSuccess: successGetRecords,
 		onError:   errorCommon})
 	c.wrk <- tsk
@@ -1679,6 +1946,19 @@ func successAuth(tsk ITask) {
 	}
 }
 
+func successSendMsgs(tsk ITask) {
+	target := make(map[string]any)
+
+	if tsk.(*Task).successJSONresponse(target) {
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
+
+		if tsk.GetClient().onSuccessSendMsg != nil {
+			tsk.GetClient().onSuccessSendMsg(tsk)
+		}
+	}
+}
+
 func successSaveRecord(tsk ITask) {
 	target := make(map[string]any)
 
@@ -1710,7 +1990,7 @@ func successReqRecordData(tsk ITask) {
 
 	const BUF_SIZE = 4096
 
-	data := make([]byte, 0, BUF_SIZE)
+	data := bytes.NewBuffer(make([]byte, 0))
 	buf := make([]byte, BUF_SIZE)
 
 	for true {
@@ -1721,7 +2001,11 @@ func successReqRecordData(tsk ITask) {
 		}
 
 		if n > 0 {
-			data = append(data, buf[0:n]...)
+			_, err := data.Write(buf[:n])
+			if err != nil {
+				tsk.pushError(err)
+				return
+			}
 		}
 
 		if n < BUF_SIZE {
@@ -1735,12 +2019,20 @@ func successReqRecordData(tsk ITask) {
 }
 
 func successIOFinished(tsk ITask) {
-	defer tsk.getResponse().Body.Close()
+	resp := tsk.getResponse().Body
+	defer resp.Close()
 
 	switch tsk.GetKind() {
 	case TaskOutputStream:
 		{
 			tsk.GetClient().stopOutStream()
+		}
+	case TaskInputStream:
+		{
+			err := tsk.GetClient().instream.WriteFrom(resp)
+			if err != nil {
+				tsk.pushError(err)
+			}
 		}
 	}
 
@@ -1865,30 +2157,85 @@ func (c *WCClient) SetOnUpdateMsgs(event JSONArrayNotifyEventFunc) {
 	c.onSuccessUpdateMsgs = event
 }
 
+/*
+Set new callback for the "The request to save the media record has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+*/
 func (c *WCClient) SetOnSuccessSaveRecord(event TaskNotifyFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessSaveRecord = event
 }
 
+/*
+Set new callback for the "The request to get metadata for the media record has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+	`jsonresult` inside JSONNotifyEventFunc will contain reference to the meta data for
+	the media record
+*/
 func (c *WCClient) SetOnReqRecordMeta(event JSONNotifyEventFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessRequestRecordMeta = event
 }
 
+/*
+Set new callback for the "The request to get metadata for the media record has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+*/
+func (c *WCClient) SetOnSuccessSendMsg(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessSendMsg = event
+}
+
+/*
+Set new callback for the "The request to get the media record has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+	`data` inside DataNotifyEventFunc will contain reference to the
+	byte buffer
+*/
 func (c *WCClient) SetOnReqRecordData(event DataNotifyEventFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessRequestRecord = event
 }
 
+/*
+Set new callback for the "Outgoing stream started" event.
+
+	`event` is the reference to the callback function
+*/
 func (c *WCClient) SetOnAfterLaunchOutStream(event TaskNotifyFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onAfterLaunchOutStream = event
 }
 
+/*
+Set new callback for the "Incoming stream started" event.
+
+	`event` is the reference to the callback function
+*/
+func (c *WCClient) SetOnAfterLaunchInStream(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onAfterLaunchInStream = event
+}
+
+/*
+Set new callback for the "IO stream terminated for some reason" event.
+
+	`event` is the reference to the callback function
+*/
 func (c *WCClient) SetOnSuccessIOStream(event TaskNotifyFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
@@ -1928,7 +2275,7 @@ func (c *WCClient) IsClientStatusInRange(st []ClientStatus) bool {
 	return false
 }
 
-// Get the last occured error string description for the client
+// Get the last occurred error string description for the client
 func (c *WCClient) LastError() string {
 	return c.lstError.GetValue()
 }
@@ -1947,7 +2294,7 @@ func (c *WCClient) GetLstRecStamp() string {
 Launch client.
 
 	The function initializes and starts the client''s working thread.
-	After calling this method the assigned client configuaration will be locked
+	After calling this method the assigned client configuration will be locked
 
 	`return` nil on success or error object.
 */
@@ -1967,7 +2314,7 @@ func (c *WCClient) Start() error {
 /*
 Launch request to authorize the client on the server host.
 
-	See protocol request `authorize`. Username and password are parsed from the
+	See protocol request `authorize.json`. Username and password are parsed from the
 	host URL (\sa SetHostURL)
 
 	`return` nil on success or the error object.
@@ -1984,7 +2331,7 @@ func (c *WCClient) AuthFromHostUrl() error {
 /*
 Launch request to authorize the client on the server host.
 
-	See protocol request `authorize`. If the specified `aLogin` or `aPwrd` are empty
+	See protocol request `authorize.json`. If the specified `aLogin` or `aPwrd` are empty
 	strings, the client tries to connect to the host using the username section
 	from the host URL (\sa SetHostURL)
 
@@ -2087,7 +2434,41 @@ func (c *WCClient) SetNeedToSync(val bool) {
 	c.needtosync.SetValue(val)
 }
 
-func (c *WCClient) InvalidateState(aStateId ClientState) error {
+/*
+Reset the selected client state.
+
+	Acceptable values of the state param are:
+	STATE_LOG - clear the log,
+	STATE_ERROR - delete information about the last error,
+	STATE_DEVICES - update the list of devices (see also `getDevicesOnline.json`),
+	STATE_RECORDS - update the list of media records (see also `getRecordCount.json`
+	 - according to the results of the request, the STATE_RECORDSSTAMP state will be
+	  updated automatically),
+	STATE_RECORDSSTAMP - clear the timestamp for records (the *stamp* parameter in
+		 `getRecordCount.json` request),
+	STATE_MSGS - update the list of messages (see also `getMsgs.json` - according to
+	 the results of the request, the STATE_MSGSSTAMP state will be updated
+	 automatically),
+	STATE_SENDWITHSYNC - uncheck the synchronization flag - the next update of the
+	 message list will occur without the sending of a 'sync' message
+	 (`getMsgsAndSync.json`),
+	STATE_MSGSSTAMP - clear the timestamp for messages (the *stamp* parameter in
+	 `getMsgs.json` request),
+	STATE_STREAMS - update the list of streams (see also `getStreams.json`),
+
+	Resetting STATE_DEVICES, STATE_RECORDS, STATE_MSGS, STATE_STREAMS states will update
+	the selected state from the client's thread.
+	During the execution of main loop, requests `getDevicesOnline.json`,
+	`getRecordCount.json`, `getMsgs.json` and `getStreams.json` will be generated and
+	launched, respectively.
+
+	`aStateId` is the selected client state,
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	when the new update request created
+
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) InvalidateState(aStateId ClientState, userdata any) error {
 	var err error
 	switch aStateId {
 	case STATE_LOG:
@@ -2095,13 +2476,13 @@ func (c *WCClient) InvalidateState(aStateId ClientState) error {
 	case STATE_ERROR:
 		c.ClearError()
 	case STATE_STREAMS:
-		err = c.UpdateStreams()
+		err = c.UpdateStreams(userdata)
 	case STATE_DEVICES:
-		err = c.UpdateDevices()
+		err = c.UpdateDevices(userdata)
 	case STATE_RECORDS:
-		err = c.UpdateRecords()
+		err = c.UpdateRecords(userdata)
 	case STATE_MSGS:
-		err = c.UpdateMsgs()
+		err = c.UpdateMsgs(userdata)
 	case STATE_SENDWITHSYNC:
 		c.needtosync.SetValue(false)
 	case STATE_MSGSSTAMP:
@@ -2116,46 +2497,195 @@ func (c *WCClient) InvalidateState(aStateId ClientState) error {
 	return err
 }
 
-func (c *WCClient) UpdateStreams() error {
+/*
+Update the list of streams (see also `getStreams.json`).
+
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) UpdateStreams(data any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- STATE_STREAMS
+	c.states <- &clientStateRequest{STATE_STREAMS, data}
 
 	return nil
 }
 
-func (c *WCClient) UpdateDevices() error {
+/*
+Update the list of devices (see also `getDevicesOnline.json`).
+
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) UpdateDevices(data any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- STATE_DEVICES
+	c.states <- &clientStateRequest{STATE_DEVICES, data}
 
 	return nil
 }
 
-func (c *WCClient) UpdateRecords() error {
+/*
+Update the list of media records (see also `getRecordCount.json`)
+
+	According to the results of the request, the STATE_RECORDSSTAMP state will be
+	updated automatically.
+
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) UpdateRecords(data any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- STATE_RECORDS
+	c.states <- &clientStateRequest{STATE_RECORDS, data}
 
 	return nil
 }
 
-func (c *WCClient) UpdateMsgs() error {
+/*
+Get new messages from the server.
+
+	See protocol requests ` getMsgs.json`, `getMsgsAndSync.json`.
+	According to the results of the request, the STATE_MSGSSTAMP state will be updated
+	automatically.
+
+	`data` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) UpdateMsgs(data any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- STATE_MSGS
+	c.states <- &clientStateRequest{STATE_MSGS, data}
 
 	return nil
 }
 
+/*
+Send a new message(s) to the server from device.
+
+	See protocol request `addMsgs.json`.
+
+	`aMsg` is the message object or array of messages.
+	Allowable type for `aMsg` is:
+	1. map[string]any
+	2. *OutMessageStruct - to send one outgoing message
+	3. []map[string]any
+	4. []*OutMessageStruct - to send several outgoing messages
+	`data` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) SendMsgs(aMsg any, data any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	msgRequest, err := c.initJSONRequest()
+	if err != nil {
+		return err
+	}
+
+	switch val := aMsg.(type) {
+	case map[string]any:
+		{
+			for k, v := range val {
+				msgRequest[k] = v
+			}
+		}
+	case *OutMessageStruct:
+		{
+			msgRequest[JSON_RPC_MSG] = val.Msg
+			if len(val.Target) > 0 {
+				msgRequest[JSON_RPC_TARGET] = val.Target
+			}
+			if val.Params != nil && len(val.Params) > 0 {
+				msgRequest[JSON_RPC_PARAMS] = val.Params
+			}
+		}
+	case []*OutMessageStruct:
+		{
+			msgs := make([]map[string]any, len(val))
+			for i, v := range val {
+				msgv := make(map[string]any)
+				msgv[JSON_RPC_MSG] = v.Msg
+				if len(v.Target) > 0 {
+					msgv[JSON_RPC_TARGET] = v.Target
+				}
+				if v.Params != nil && len(v.Params) > 0 {
+					msgv[JSON_RPC_PARAMS] = v.Params
+				}
+				msgs[i] = msgv
+			}
+			msgRequest[JSON_RPC_MSGS] = msgs
+		}
+	case []any:
+		{
+			msgs := make([]map[string]any, len(val))
+			for i, v := range val {
+				switch vv := v.(type) {
+				case map[string]any:
+					{
+						msgs[i] = vv
+					}
+				default:
+					{
+						return ThrowErrWrongOutMsgFormat()
+					}
+				}
+			}
+			msgRequest[JSON_RPC_MSGS] = msgs
+		}
+	case []map[string]any:
+		{
+			msgs := make([]map[string]any, len(val))
+			for i, vv := range val {
+				msgs[i] = vv
+			}
+			msgRequest[JSON_RPC_MSGS] = msgs
+		}
+	default:
+		{
+			return ThrowErrWrongOutMsgFormat()
+		}
+	}
+
+	b, err := json.Marshal(msgRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.doPost("addMsgs.json", b)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  data,
+		onSuccess: successSendMsgs,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
+
+	return nil
+}
+
+/*
+Save the media record (see also `addRecord.json`).
+
+	`aBuf` is the user-specified Reader with the frame data
+	`aBufSize` is the frame size, mandatory if the Reader is not provided content length by itself
+	`meta` is additional metadata for the saving media record
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		if aBuf != nil {
@@ -2187,6 +2717,13 @@ func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, u
 	return nil
 }
 
+/*
+Get the metadata for the media record (see also `getRecordMeta.json`).
+
+	`rid` is the id of the media record
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) RequestRecordMeta(rid int, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
@@ -2219,6 +2756,13 @@ func (c *WCClient) RequestRecordMeta(rid int, userdata any) error {
 	return nil
 }
 
+/*
+Get the blob data of the media record (see also `getRecordData.json`).
+
+	`rid` is the id of the media record
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) RequestRecord(rid int, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
@@ -2228,7 +2772,7 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 		JSON_RPC_RID: strconv.FormatInt(int64(rid), 10),
 	}
 
-	req, err := c.doGet("getRecordData.json", params)
+	req, err := c.doPostWithParams("getRecordData.json", params)
 	if err != nil {
 		return err
 	}
@@ -2244,6 +2788,14 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 	return nil
 }
 
+/*
+Launch output stream for authorized (sa `input.raw` request)
+
+	`subProtocol` is the sub protocol description,
+	`delta` is the delta time between frames in ms,
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
@@ -2271,6 +2823,8 @@ func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) e
 
 	c.wrk <- tsk
 
+	c.lockcbks()
+	defer c.unlockcbks()
 	if c.onAfterLaunchOutStream != nil {
 		c.onAfterLaunchOutStream(tsk)
 	}
@@ -2278,24 +2832,78 @@ func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) e
 	return nil
 }
 
+/*
+Push the new data frame to the output stream (sa `input.raw` request)
+
+	`data` is the byte buffer with the frame header and its body
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) PushOutData(data *bytes.Buffer) error {
 	c.lockstrs()
 	defer c.unlockstrs()
 	if c.outstream != nil {
 		c.outstream.outframes.PushBack(data)
+		c.outstream.frameseq <- nil
+	} else {
+
 	}
 	return nil
 }
 
-func (c *WCClient) StopStreaming() {
-	c.stopOutStream()
-	// c.stopInStream()
+func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	params := map[string]string{
+		JSON_RPC_DEVICE: aDeviceName,
+	}
+
+	req, err := c.doGet("output.raw", params)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{
+		client:    c,
+		kind:      TaskInputStream,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successIOFinished,
+		onError:   errorIOCommon})
+
+	c.startInStream(tsk, onNewFrame)
+
+	c.wrk <- tsk
+
+	c.lockcbks()
+	defer c.unlockcbks()
+	if c.onAfterLaunchInStream != nil {
+		c.onAfterLaunchInStream(tsk)
+	}
+
+	return nil
+}
+
+func (c *WCClient) PopInFrame() (*bytes.Buffer, error) {
+	c.lockstrs()
+	defer c.unlockstrs()
+
+	if c.instream != nil {
+		return c.instream.incomeframes.Pop(), nil
+	}
+	return nil, ThrowErrNotStreaming()
 }
 
 /*
-func (c *WCClient) LaunchInStream(aDeviceName string) error {
-
+Stop streaming for the client
+*/
+func (c *WCClient) StopStreaming() {
+	c.stopOutStream()
+	c.stopInStream()
 }
+
+/*
 
 func (c *WCClient) GetConfig() error {
 
@@ -2306,10 +2914,6 @@ func (c *WCClient) SetConfig(aStr string) error {
 }
 
 func (c *WCClient) DeleteRecords(aIndices []int) error {
-
-}
-
-func (c *WCClient) SendMsg(aMsg any) error {
 
 }
 

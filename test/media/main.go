@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -100,7 +101,7 @@ func (rec *mediaRecord) GetStatus() mediaStatus {
 	return rec.status
 }
 
-func AuthSuccess(tsk *wclib.Task) {
+func AuthSuccess(tsk wclib.ITask) {
 	fmt.Println("SID ", tsk.GetClient().GetSID())
 	record.sequence <- &record
 }
@@ -127,19 +128,16 @@ func check(e error) {
 }
 
 /* Callback. The list of media records was changed. */
-func OnGetRecords(task *wclib.Task, jArr []any) {
+func OnGetRecords(task wclib.ITask, jArr []map[string]any) {
 	if jArr != nil {
 		for j := len(jArr) - 1; j >= 0; j-- {
-			jObjMap, ok := jArr[j].(map[string]any)
-			if ok {
-				media := wclib.MediaStruct{}
-				if err := media.JSONDecode(jObjMap); err == nil {
-					if media.Device == *device_param {
-						fmt.Printf("Records received - last record id %d - stamp %s\n", int(media.Rid), media.Stamp)
-						record.SetRID(int(media.Rid))
-						record.SetStatus(StatusRIDObtained)
-						return
-					}
+			media := wclib.MediaStruct{}
+			if err := media.JSONDecode(jArr[j]); err == nil {
+				if media.Device == *device_param {
+					fmt.Printf("Records received - last record id %d - stamp %s\n", int(media.Rid), media.Stamp)
+					record.SetRID(int(media.Rid))
+					record.SetStatus(StatusRIDObtained)
+					return
 				}
 			}
 		}
@@ -149,17 +147,14 @@ func OnGetRecords(task *wclib.Task, jArr []any) {
 }
 
 /* Callback. The media record metadata received. */
-func OnGetRecordMeta(task *wclib.Task, jObj any) {
+func OnGetRecordMeta(task wclib.ITask, jObj map[string]any) {
 	if jObj != nil {
-		jObjMap, ok := jObj.(map[string]any)
-		if ok {
-			meta := wclib.MediaMetaStruct{}
-			if err := meta.JSONDecode(jObjMap); err == nil {
-				fmt.Printf("Record %d - meta data received: \"%s\"\n", record.id, meta.Meta)
-				record.SetMeta(meta.Meta)
-				record.SetStatus(StatusMetaObtained)
-				return
-			}
+		meta := wclib.MediaMetaStruct{}
+		if err := meta.JSONDecode(jObj); err == nil {
+			fmt.Printf("Record %d - meta data received: \"%s\"\n", record.id, meta.Meta)
+			record.SetMeta(meta.Meta)
+			record.SetStatus(StatusMetaObtained)
+			return
 		}
 	}
 
@@ -167,7 +162,7 @@ func OnGetRecordMeta(task *wclib.Task, jObj any) {
 }
 
 /* Callback. The request to save the media record has been completed. The response has arrived. */
-func OnAfterSaveRecord(task *wclib.Task) {
+func OnAfterSaveRecord(task wclib.ITask) {
 	file_name, ok := task.GetUserData().(*string)
 
 	if ok {
@@ -179,8 +174,10 @@ func OnAfterSaveRecord(task *wclib.Task) {
 }
 
 /* Callback. The request to get the media record has been completed. The response has arrived. */
-func OnGetRecordData(task *wclib.Task, data []byte) {
-	fmt.Printf("Record %d (%d bytes) successfully downloaded\n", record.id, len(data))
+func OnGetRecordData(task wclib.ITask, data *bytes.Buffer) {
+	len := data.Len()
+
+	fmt.Printf("Record %d (%d bytes) successfully downloaded\n", record.id, len)
 
 	output_file := fmt.Sprintf("record %d.%s", record.id, record.metadata)
 	outfile, err := os.Create(output_file)
@@ -191,14 +188,14 @@ func OnGetRecordData(task *wclib.Task, data []byte) {
 
 	defer outfile.Close()
 
-	_, err = outfile.Write(data)
+	_, err = data.WriteTo(outfile)
 
 	if err != nil {
 		record.SetStatus(StatusError)
 		panic(err)
 	}
 
-	fmt.Printf("File \"%s\" (%d bytes) successfully saved\n", output_file, len(data))
+	fmt.Printf("File \"%s\" (%d bytes) successfully saved\n", output_file, len)
 
 	record.SetStatus(StatusDownloaded)
 }
@@ -287,7 +284,7 @@ func main() {
 						case StatusSended:
 							{
 								go func() {
-									if err := c.UpdateRecords(); err != nil {
+									if err := c.UpdateRecords(nil); err != nil {
 										fmt.Printf("Error on updating records: %v\n", err)
 										record.SetStatus(StatusError)
 									}
