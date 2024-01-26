@@ -10,7 +10,16 @@ A detailed implementation of an external device based on "ESP32-CAM" is given in
 The example of a desktop application for external device controlling and viewing images is [webcamclientviewer (Lazarus)](https://github.com/iLya2IK/webcamclientviewer).
 An example of an Android application for controlling external devices, chatting and streaming is [wcwebcameracontrol (Java)](https://github.com/iLya2IK/wcwebcameracontrol).
 
-## Example of in/out streaming
+## Usage
+
+Use go get -u to download and install the prebuilt package.
+
+```
+go get -u github.com/ilya2ik/wcwebcamclient_go/lib
+```
+
+
+### Example for in/out streaming
 
 ```go
 /* Streaming files from a folder as a set of frames  */
@@ -27,7 +36,7 @@ import (
    "sync"
    "time"
 
-   "libs.com/wclib"
+   wclib "github.com/ilya2ik/wcwebcamclient_go/lib"
 )
 
 /* Relative path to files */
@@ -182,7 +191,6 @@ func main() {
    c, err := wclib.ClientNew(cfg)
    check(err)
    c.SetOnAuthSuccess(AuthSuccess)
-   c.SetOnAddLog(OnLog)
 
    c.SetOnAfterLaunchOutStream(onIOTaskStarted)
    c.SetOnSuccessIOStream(onIOTaskFinished)
@@ -297,7 +305,6 @@ func main() {
 
    fmt.Println("Client finished")
 }
-
 ```
 
 ```go
@@ -311,11 +318,10 @@ import (
    "bytes"
    "fmt"
    "os"
-   "strings"
    "sync"
    "time"
 
-   "libs.com/wclib"
+   wclib "github.com/ilya2ik/wcwebcamclient_go/lib"
 )
 
 /* Relative path to save output data */
@@ -389,7 +395,7 @@ func OnUpdateStreams(tsk wclib.ITask, jsonobj []map[string]any) {
 
       if aStrm.Device == "device_to_listen" {
          fmt.Printf("Stream detected `%s`; subproto: `%s`; delta: %d\n",
-                        aStrm.Device, aStrm.SubProto, int(appStream.deltaTime))
+            aStrm.Device, aStrm.SubProto, int(appStream.deltaTime))
          appStream.deltaTime = int(aStrm.Delta)
          appStream.SetStatus(StatusStreamDetected)
          return
@@ -407,7 +413,7 @@ func onIOTaskFinished(tsk wclib.ITask) {
 
 func onNextFrame(tsk wclib.ITask) {
    fmt.Println("New frame captured")
-    appStream.sequence <- &appStream
+   appStream.sequence <- &appStream
 }
 
 func check(e error) {
@@ -469,8 +475,8 @@ func main() {
                               fmt.Printf("Error on starting stream: %v\n", err)
                               appStream.SetStatus(StatusError)
                            } else {
-                                        appStream.SetStatus(StatusIOStarted)
-                                    }
+                              appStream.SetStatus(StatusIOStarted)
+                           }
                         }()
                      }
                   case StatusIOStarted:
@@ -483,7 +489,7 @@ func main() {
 
                         go func(frame *bytes.Buffer) {
                            outfile, err := os.Create(
-                              fmt.Sprintf("%s/frame%05d.raw", OUTPUT_FOLDER, appStream.curFramet))
+                              fmt.Sprintf("%s/frame%05d.raw", OUTPUT_FOLDER, appStream.curFrame))
                            if err != nil {
                               appStream.SetStatus(StatusError)
                               panic(err)
