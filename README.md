@@ -12,7 +12,7 @@ An example of an Android application for controlling external devices, chatting 
 
 ## Example of in/out streaming
 
-```[go]
+```go
 /* Streaming files from a folder as a set of frames  */
 
 package main
@@ -300,7 +300,7 @@ func main() {
 
 ```
 
-```[go]
+```go
 /* Streaming of the incoming data.
    Frames are extracted from the stream and
    saved in OUTPUT_FOLDER in separate files  */
