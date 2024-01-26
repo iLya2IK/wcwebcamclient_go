@@ -2,6 +2,8 @@
 /* This is an example of how to use the wcWebCamClient library.  */
 /* In this example, a client is created, authorized on the       */
 /* server, uploads a media record and downloads it to disk.      */
+/* After all the saved record will removed from the server by    */
+/* the request.                                                  */
 /*                                                               */
 /* Part of WebCamClientLib go module                             */
 /*                                                               */
@@ -31,6 +33,7 @@ const (
 	StatusRIDObtained
 	StatusMetaObtained
 	StatusDownloaded
+	StatusRIDDeleted
 	StatusError
 )
 
@@ -200,6 +203,11 @@ func OnGetRecordData(task wclib.ITask, data *bytes.Buffer) {
 	record.SetStatus(StatusDownloaded)
 }
 
+func OnRecordDelete(tsk wclib.ITask) {
+	fmt.Printf("Media record %d deleted\n", record.id)
+	record.SetStatus(StatusRIDDeleted)
+}
+
 var proxy_param = flag.String("proxy", "", "Proxy in format [scheme:]//[user[:password]@]host[:port]")
 var host_param = flag.String("host", "https://localhost", "URL for server host in format https://[user[:password]@]hostname[:port]")
 var param_param = flag.Int("port", 0, "Server port")
@@ -230,6 +238,7 @@ func main() {
 	c.SetOnSuccessSaveRecord(OnAfterSaveRecord)
 	c.SetOnReqRecordMeta(OnGetRecordMeta)
 	c.SetOnReqRecordData(OnGetRecordData)
+	c.SetOnSuccessDeleteRecords(OnRecordDelete)
 
 	fmt.Println("Trying to start client")
 
@@ -269,7 +278,7 @@ func main() {
 								fi, err := fp.Stat()
 								check(err)
 
-								go func(v *mediaRecord) {
+								go func() {
 									fmt.Println("Sending media record...")
 									ext := strings.ToUpper(path.Ext(*inputfile_param))
 									if len(ext) > 0 {
@@ -279,7 +288,7 @@ func main() {
 										fmt.Printf("Error on sending record: %v\n", err)
 										record.SetStatus(StatusError)
 									}
-								}(v)
+								}()
 							}
 						case StatusSended:
 							{
@@ -309,6 +318,16 @@ func main() {
 								}()
 							}
 						case StatusDownloaded:
+							{
+								go func() {
+									arr := [...]int{record.GetRID()}
+									if err := c.DeleteRecords(arr[0:], nil); err != nil {
+										fmt.Printf("Error on deleting records: %v\n", err)
+										record.SetStatus(StatusError)
+									}
+								}()
+							}
+						case StatusRIDDeleted:
 							{
 								fmt.Println("Process fully finished")
 								c.Disconnect()

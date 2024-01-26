@@ -133,13 +133,13 @@ func OnClientStateChange(c *wclib.WCClient, st wclib.ClientStatus) {
 
 /* Callback. IO stream closed. */
 func onIOTaskFinished(tsk wclib.ITask) {
-	fmt.Println("Output stream closed")
+	fmt.Println("Input stream closed")
 	appStream.SetStatus(StatusIOFinished)
 }
 
 /* Callback. IO stream started. */
 func onIOTaskStarted(tsk wclib.ITask) {
-	fmt.Println("Output stream started")
+	fmt.Println("Input stream started")
 	appStream.SetStatus(StatusIOStarted)
 }
 
@@ -186,7 +186,7 @@ func main() {
 	c.SetOnConnected(OnClientStateChange)
 	c.SetOnUpdateStreams(OnUpdateStreams)
 
-	c.SetOnAfterLaunchOutStream(onIOTaskStarted)
+	c.SetOnAfterLaunchInStream(onIOTaskStarted)
 	c.SetOnSuccessIOStream(onIOTaskFinished)
 
 	fmt.Println("Trying to start client")

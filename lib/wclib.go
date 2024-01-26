@@ -523,8 +523,7 @@ func (c *FramesListThreadSafe) Pop() *bytes.Buffer {
 
 	el := c.value.Front()
 	if el != nil {
-		c.value.Remove(el)
-		return el.Value.(*bytes.Buffer)
+		return c.value.Remove(el).(*bytes.Buffer)
 	} else {
 		return nil
 	}
@@ -1985,6 +1984,19 @@ func successReqRecordMeta(tsk ITask) {
 	}
 }
 
+func successDeleteRecords(tsk ITask) {
+	target := make(map[string]any)
+
+	if tsk.(*Task).successJSONresponse(target) {
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
+
+		if tsk.GetClient().onSuccessDeleteRecords != nil {
+			tsk.GetClient().onSuccessDeleteRecords(tsk)
+		}
+	}
+}
+
 func successReqRecordData(tsk ITask) {
 	defer tsk.getResponse().Body.Close()
 
@@ -2155,6 +2167,18 @@ func (c *WCClient) SetOnUpdateMsgs(event JSONArrayNotifyEventFunc) {
 	c.lockcbks()
 	defer c.unlockcbks()
 	c.onSuccessUpdateMsgs = event
+}
+
+/*
+Set new callback for the "he request to delete records has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+*/
+func (c *WCClient) SetOnSuccessDeleteRecords(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessDeleteRecords = event
 }
 
 /*
@@ -2788,8 +2812,41 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 	return nil
 }
 
+func (c *WCClient) DeleteRecords(aIndices []int, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	drRequest, err := c.initJSONRequest()
+	if err != nil {
+		return err
+	}
+
+	drRequest[JSON_RPC_RECORDS] = aIndices
+
+	b, err := json.Marshal(drRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.doPost("deleteRecords.json", b)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successDeleteRecords,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
+
+	return nil
+}
+
 /*
-Launch output stream for authorized (sa `input.raw` request)
+Launch output stream for authorized client (sa `input.raw` request)
 
 	`subProtocol` is the sub protocol description,
 	`delta` is the delta time between frames in ms,
@@ -2850,6 +2907,14 @@ func (c *WCClient) PushOutData(data *bytes.Buffer) error {
 	return nil
 }
 
+/*
+Launch incoming stream for authorized client (sa `output.raw` request)
+
+	`aDeviceName` is the name of streaming device to listen,
+	`onNewFrame` is the callback to catch the `new frame` event,
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
@@ -2885,6 +2950,13 @@ func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc,
 	return nil
 }
 
+/*
+Get the new frame from the incoming stream (sa `output.raw` request)
+
+	`return` bytes.Buffer with the frame body on success or the
+	error object. If there is no frames in the stream sequece -
+	the function returns both nil for Buffer and error results
+*/
 func (c *WCClient) PopInFrame() (*bytes.Buffer, error) {
 	c.lockstrs()
 	defer c.unlockstrs()
@@ -2910,10 +2982,6 @@ func (c *WCClient) GetConfig() error {
 }
 
 func (c *WCClient) SetConfig(aStr string) error {
-
-}
-
-func (c *WCClient) DeleteRecords(aIndices []int) error {
 
 }
 
