@@ -5,6 +5,7 @@
 !**/images
 !test/*
 
+*.kate-swp
 *.exe
 *.o
 *.a
