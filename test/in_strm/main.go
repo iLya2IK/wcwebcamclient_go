@@ -1,7 +1,9 @@
 /*===============================================================*/
 /* This is an example of how to use the wcWebCamClient library.  */
 /* In this example, a client is created, authorized on the       */
-/* server, uploads a media record and downloads it to disk.      */
+/* server, and starts listening to streaming from selected input */
+/* device. All frames of the incoming stream are saved in the    */
+/* specified folder											     */
 /*                                                               */
 /* Part of WebCamClientLib go module                             */
 /*                                                               */

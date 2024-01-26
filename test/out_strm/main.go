@@ -1,7 +1,8 @@
 /*===============================================================*/
 /* This is an example of how to use the wcWebCamClient library.  */
 /* In this example, a client is created, authorized on the       */
-/* server, uploads a media record and downloads it to disk.      */
+/* server, and starts to streaming. Each outgoing frame is an    */
+/* PNG-image from the specified directory.                       */
 /*                                                               */
 /* Part of WebCamClientLib go module                             */
 /*                                                               */
