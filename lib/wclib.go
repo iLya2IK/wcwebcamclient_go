@@ -60,6 +60,20 @@ type StreamStruct struct {
 	Delta    float64 `json:"delta"`
 }
 
+type ConfigElementStruct struct {
+	Kind         float64 `json:"kind"`
+	Description  string  `json:"descr"`
+	MinValue     float64 `json:"miv"`
+	MaxValue     float64 `json:"mav"`
+	DefaultValue float64 `json:"dv"`
+	CurValue     float64 `json:"fv"`
+}
+
+type OutConfigElementStruct struct {
+	Kind     float64 `json:"kind"`
+	CurValue float64 `json:"fv"`
+}
+
 /*
 You can use JSONHelper methods to convert json maps to structs.
 The methods are not efficient and applyable only for testing proposes.
@@ -253,6 +267,80 @@ func (mr *StreamStruct) JSONDecode(jsonmap map[string]any) error {
 	return nil
 }
 
+/*
+Convert the golang map of any to the ConfigElementStruct
+*/
+func (mr *ConfigElementStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_KIND, tp: reflect.Float64},
+		{name: JSON_RPC_DESCR, tp: reflect.String},
+		{name: JSON_RPC_MIV, tp: reflect.Float64},
+		{name: JSON_RPC_MAV, tp: reflect.Float64},
+		{name: JSON_RPC_DV, tp: reflect.Float64},
+		{name: JSON_RPC_FV, tp: reflect.Float64},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Kind, _ = _any.(float64)
+				case 1:
+					mr.Description, _ = _any.(string)
+				case 2:
+					mr.MinValue, _ = _any.(float64)
+				case 3:
+					mr.MaxValue, _ = _any.(float64)
+				case 4:
+					mr.DefaultValue, _ = _any.(float64)
+				case 5:
+					mr.CurValue, _ = _any.(float64)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
+/*
+Convert the golang map of any to the OutConfigElementStruct
+*/
+func (mr *OutConfigElementStruct) JSONDecode(jsonmap map[string]any) error {
+	decl := []jsonField{
+		{name: JSON_RPC_KIND, tp: reflect.Float64},
+		{name: JSON_RPC_FV, tp: reflect.Float64},
+	}
+
+	for num, v := range decl {
+		_any, ok := jsonmap[v.name]
+		if ok {
+			dt := reflect.TypeOf(_any).Kind()
+			if dt == v.tp {
+				switch num {
+				case 0:
+					mr.Kind, _ = _any.(float64)
+				case 1:
+					mr.CurValue, _ = _any.(float64)
+				}
+			} else {
+				return ThrowErrMalformedResponse(EMKWrongType, v.name, fmt.Sprintf("%v", v.tp))
+			}
+		} else {
+			return ThrowErrMalformedResponse(EMKFieldExpected, v.name, nil)
+		}
+	}
+
+	return nil
+}
+
 type ClientStatus int
 
 const (
@@ -288,6 +376,7 @@ const STATE_PROXYHOST ClientState = 18
 const STATE_PROXYPORT ClientState = 19
 const STATE_PROXYUSER ClientState = 20
 const STATE_PROXYPWRD ClientState = 21
+const STATE_CONFIG ClientState = 22
 
 const JSON_RPC_OK string = "OK"
 const JSON_RPC_BAD string = "BAD"
@@ -313,6 +402,12 @@ const JSON_RPC_TARGET string = "target"
 const JSON_RPC_PARAMS string = "params"
 const JSON_RPC_SUBPROTO string = "subproto"
 const JSON_RPC_DELTA string = "delta"
+const JSON_RPC_KIND string = "kind"
+const JSON_RPC_DESCR string = "descr"
+const JSON_RPC_MIV string = "miv"
+const JSON_RPC_MAV string = "mav"
+const JSON_RPC_DV string = "dv"
+const JSON_RPC_FV string = "fv"
 
 const NO_ERROR = 0
 const UNSPECIFIED = 1
@@ -610,9 +705,10 @@ type WCClient struct {
 	onSuccessUpdateDevices     JSONArrayNotifyEventFunc /* The request to update list of online devices has been completed. The response has arrived. */
 	onSuccessUpdateStreams     JSONArrayNotifyEventFunc /* The request to update list of streaming devices has been completed. The response has arrived. */
 	onSuccessUpdateMsgs        JSONArrayNotifyEventFunc /* The request to update list of messages has been completed. The response has arrived. */
+	onSuccessGetConfig         JSONArrayNotifyEventFunc /* The request to get actual config has been completed. The response has arrived. */
 	onSuccessSendMsg           TaskNotifyFunc           /* The request to send message has been completed. The response has arrived.  */
+	onSuccessSetConfig         TaskNotifyFunc           /* The request to set new client configuration has been completed. The response has arrived.  */
 	onSuccessRequestRecordMeta JSONNotifyEventFunc      /* The request to get metadata for the media record has been completed. The response has arrived. */
-	onSuccessGetConfig         JSONNotifyEventFunc      /* The request to get actual config has been completed. The response has arrived. */
 	onSuccessDeleteRecords     TaskNotifyFunc           /* The request to delete records has been completed. The response has arrived. */
 
 	/* channels */
@@ -676,6 +772,33 @@ func ThrowErrWrongOutMsgFormat() *ErrWrongOutMsgFormat {
 
 func (e *ErrWrongOutMsgFormat) Error() string {
 	return "Wrong type for outgoing messages. Allowed: map[string]any, []map[string]any, *OutMessageStruct, []*OutMessageStruct"
+}
+
+/* ErrWrongConfigElementFormat */
+
+type ErrWrongConfigElementFormat struct{}
+
+func ThrowErrWrongConfigElementFormat() *ErrWrongConfigElementFormat {
+	return &ErrWrongConfigElementFormat{}
+}
+
+func (e *ErrWrongConfigElementFormat) Error() string {
+	return "Wrong type for outgoing config element. Allowed: map[string]any, *OutConfigElementStruct"
+}
+
+/* ErrWrongArgument */
+
+type ErrWrongArgument struct {
+	name  string
+	value string
+}
+
+func ThrowErrWrongArgument(name string, value any) *ErrWrongArgument {
+	return &ErrWrongArgument{name: name, value: fmt.Sprintf("%v", value)}
+}
+
+func (e *ErrWrongArgument) Error() string {
+	return fmt.Sprintf("Argument `%s` has wrong value (%s)", e.name, e.value)
 }
 
 /* ErrWrongStatus */
@@ -1559,6 +1682,8 @@ func (c *WCClient) internalStart() {
 						go c.updateRecords(state.userdata)
 					case STATE_STREAMS:
 						go c.updateStreams(state.userdata)
+					case STATE_CONFIG:
+						go c.updateConfig(state.userdata)
 					}
 				}
 			default:
@@ -1836,6 +1961,27 @@ func (c *WCClient) updateRecords(data any) error {
 	return nil
 }
 
+func (c *WCClient) updateConfig(data any) error {
+	b, err := c.simpleJSONRequest()
+	if err != nil {
+		return err
+	}
+
+	req, err := c.doPost("getConfig.json", b)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  data,
+		onSuccess: successGetConfig,
+		onError:   errorCommon})
+	c.wrk <- tsk
+
+	return nil
+}
+
 /* WCClient responses */
 
 func successGetMsgs(tsk ITask) {
@@ -1874,6 +2020,26 @@ func successGetRecords(tsk ITask) {
 
 		if tsk.GetClient().onSuccessUpdateRecords != nil {
 			tsk.GetClient().onSuccessUpdateRecords(tsk, arr)
+		}
+	}
+}
+
+func successGetConfig(tsk ITask) {
+
+	target := make(map[string]any)
+
+	if tsk.(*Task).successJSONresponse(target) {
+		arr, err := getwcObjArray(target, JSON_RPC_CONFIG)
+		if err != nil {
+			tsk.pushError(err)
+			return
+		}
+
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
+
+		if tsk.GetClient().onSuccessGetConfig != nil {
+			tsk.GetClient().onSuccessGetConfig(tsk, arr)
 		}
 	}
 }
@@ -1954,6 +2120,19 @@ func successSendMsgs(tsk ITask) {
 
 		if tsk.GetClient().onSuccessSendMsg != nil {
 			tsk.GetClient().onSuccessSendMsg(tsk)
+		}
+	}
+}
+
+func successSetConfig(tsk ITask) {
+	target := make(map[string]any)
+
+	if tsk.(*Task).successJSONresponse(target) {
+		tsk.GetClient().lockcbks()
+		defer tsk.GetClient().unlockcbks()
+
+		if tsk.GetClient().onSuccessSetConfig != nil {
+			tsk.GetClient().onSuccessSetConfig(tsk)
 		}
 	}
 }
@@ -2114,7 +2293,7 @@ func (c *WCClient) SetOnAddLog(event StringNotifyFunc) {
 
 /*
 Set new callback for the "The request to update list of media records has been completed.
-The response has arrived." event.
+The response has arrived" event.
 
 	`event` is the reference to the callback function
 	`jsonresult` inside JSONArrayNotifyEventFunc will contain reference to the array of
@@ -2129,7 +2308,7 @@ func (c *WCClient) SetOnUpdateRecords(event JSONArrayNotifyEventFunc) {
 
 /*
 Set new callback for the "The request to update list of online devices has been completed.
-The response has arrived." event.
+The response has arrived" event.
 
 	`event` is the reference to the callback function
 	`jsonresult` inside JSONArrayNotifyEventFunc will contain reference to the array of
@@ -2143,7 +2322,7 @@ func (c *WCClient) SetOnUpdateDevices(event JSONArrayNotifyEventFunc) {
 
 /*
 Set new callback for the "The request to update list of streaming devices has been completed
-The response has arrived." event.
+The response has arrived" event.
 
 	`event` is the reference to the callback function
 	`jsonresult` inside JSONArrayNotifyEventFunc will contain reference to the array of
@@ -2157,7 +2336,7 @@ func (c *WCClient) SetOnUpdateStreams(event JSONArrayNotifyEventFunc) {
 
 /*
 Set new callback for the "The request to update list of messages has been completed.
-The response has arrived." event.
+The response has arrived" event.
 
 	`event` is the reference to the callback function
 	`jsonresult` inside JSONArrayNotifyEventFunc will contain reference to the array of
@@ -2170,7 +2349,21 @@ func (c *WCClient) SetOnUpdateMsgs(event JSONArrayNotifyEventFunc) {
 }
 
 /*
-Set new callback for the "he request to delete records has been completed.
+Set new callback for the "The request to get actual config has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+	`jsonresult` inside JSONArrayNotifyEventFunc will contain reference to the array of
+	the incoming config elements
+*/
+func (c *WCClient) SetOnGetConfig(event JSONArrayNotifyEventFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessGetConfig = event
+}
+
+/*
+Set new callback for the "The request to delete records has been completed.
 The response has arrived" event.
 
 	`event` is the reference to the callback function
@@ -2288,6 +2481,7 @@ func (c *WCClient) GetClientStatus() ClientStatus {
 	return c.clientst.getValue()
 }
 
+// Check is the client status in the given range
 func (c *WCClient) IsClientStatusInRange(st []ClientStatus) bool {
 	curstatus := c.GetClientStatus()
 	for _, v := range st {
@@ -2554,7 +2748,7 @@ func (c *WCClient) UpdateDevices(data any) error {
 }
 
 /*
-Update the list of media records (see also `getRecordCount.json`)
+Update the list of media records (see also `getRecordCount.json`).
 
 	According to the results of the request, the STATE_RECORDSSTAMP state will be
 	updated automatically.
@@ -2812,6 +3006,13 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 	return nil
 }
 
+/*
+Delete specified media records for authorized client (see also `deleteRecords.json`).
+
+	`aIndices` is the array filled with the IDs of the records to be deleted
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
 func (c *WCClient) DeleteRecords(aIndices []int, userdata any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
@@ -2846,7 +3047,7 @@ func (c *WCClient) DeleteRecords(aIndices []int, userdata any) error {
 }
 
 /*
-Launch output stream for authorized client (sa `input.raw` request)
+Launch output stream for authorized client (sa `input.raw` request).
 
 	`subProtocol` is the sub protocol description,
 	`delta` is the delta time between frames in ms,
@@ -2890,7 +3091,7 @@ func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) e
 }
 
 /*
-Push the new data frame to the output stream (sa `input.raw` request)
+Push the new data frame to the output stream (sa `input.raw` request).
 
 	`data` is the byte buffer with the frame header and its body
 	`return` nil on success or the error object.
@@ -2908,7 +3109,7 @@ func (c *WCClient) PushOutData(data *bytes.Buffer) error {
 }
 
 /*
-Launch incoming stream for authorized client (sa `output.raw` request)
+Launch incoming stream for authorized client (sa `output.raw` request).
 
 	`aDeviceName` is the name of streaming device to listen,
 	`onNewFrame` is the callback to catch the `new frame` event,
@@ -2951,7 +3152,7 @@ func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc,
 }
 
 /*
-Get the new frame from the incoming stream (sa `output.raw` request)
+Get the new frame from the incoming stream (sa `output.raw` request).
 
 	`return` bytes.Buffer with the frame body on success or the
 	error object. If there is no frames in the stream sequece -
@@ -2976,13 +3177,84 @@ func (c *WCClient) StopStreaming() {
 }
 
 /*
+Get configuration from the server for authorized client (sa `getConfig.json` request).
 
-func (c *WCClient) GetConfig() error {
-
-}
-
-func (c *WCClient) SetConfig(aStr string) error {
-
-}
-
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
 */
+func (c *WCClient) GetConfig(userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	c.states <- &clientStateRequest{STATE_MSGS, userdata}
+
+	return nil
+}
+
+/*
+Send configuration of authorized client to the server (sa `setConfig.json` request).
+
+	`aStr` is the array of configuration elements. The possible types of each element
+	in this array are: map[string]any or *OutConfigElementStruct
+	`userdata` is the additional user data that passed to the new task (GetUserData)
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) SetConfig(aStr []any, userdata any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	if aStr == nil || (len(aStr) == 0) {
+		return ThrowErrWrongArgument("aStr", aStr)
+	}
+
+	scRequest, err := c.initJSONRequest()
+	if err != nil {
+		return err
+	}
+
+	cfg := make([]map[string]any, len(aStr))
+
+	for ind, _ := range aStr {
+		switch val := aStr[ind].(type) {
+		case *OutConfigElementStruct:
+			{
+				cfg_element := make(map[string]any)
+				cfg_element[JSON_RPC_KIND] = val.Kind
+				cfg_element[JSON_RPC_FV] = val.CurValue
+				cfg = append(cfg, cfg_element)
+			}
+		case map[string]any:
+			{
+				cfg = append(cfg, val)
+			}
+		default:
+			{
+				return ThrowErrWrongConfigElementFormat()
+			}
+		}
+	}
+
+	scRequest[JSON_RPC_CONFIG] = cfg
+
+	b, err := json.Marshal(scRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := c.doPost("setConfig.json", b)
+	if err != nil {
+		return err
+	}
+
+	tsk := &(Task{client: c,
+		request:   req,
+		userdata:  userdata,
+		onSuccess: successSetConfig,
+		onError:   errorCommon})
+
+	c.wrk <- tsk
+
+	return nil
+}
