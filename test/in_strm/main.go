@@ -184,7 +184,6 @@ func main() {
 	c.SetOnAuthSuccess(AuthSuccess)
 	c.SetOnAddLog(OnLog)
 	c.SetOnConnected(OnClientStateChange)
-	c.SetOnUpdateStreams(OnUpdateStreams)
 
 	c.SetOnAfterLaunchInStream(onIOTaskStarted)
 	c.SetOnSuccessIOStream(onIOTaskFinished)
@@ -223,14 +222,14 @@ func main() {
 							}
 						case StatusAuthorized:
 							{
-								check(c.UpdateStreams(nil))
+								check(c.UpdateStreams(OnUpdateStreams))
 							}
 						case StatusStreamDetected:
 							{
 								start_ts = time.Now().UnixMilli()
 								go func() {
 									fmt.Println("Starting incoming stream...")
-									if err := c.LaunchInStream(*listen_param, onNextFrame, nil); err != nil {
+									if err := c.LaunchInStream(*listen_param, onNextFrame); err != nil {
 										fmt.Printf("Error on starting stream: %v\n", err)
 										appStream.SetStatus(StatusError)
 									}

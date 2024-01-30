@@ -37,21 +37,9 @@ func OnClientStateChange(c *wclib.WCClient, st wclib.ClientStatus) {
 	}
 }
 
-func OnUpdateMsgs(tsk wclib.ITask, res []map[string]any) {
-	for _, v := range res {
-		fmt.Println(v)
-	}
-}
-
 func check(e error) {
 	if e != nil {
 		panic(e)
-	}
-}
-
-func OnUpdateDevices(tsk wclib.ITask, res []map[string]any) {
-	for _, v := range res {
-		fmt.Println(v)
 	}
 }
 
@@ -80,8 +68,6 @@ func main() {
 	c.SetOnAuthSuccess(AuthSuccess)
 	c.SetOnAddLog(OnLog)
 	c.SetOnConnected(OnClientStateChange)
-	c.SetOnUpdateMsgs(OnUpdateMsgs)
-	c.SetOnUpdateDevices(OnUpdateDevices)
 
 	fmt.Println("Trying to start client")
 
@@ -90,24 +76,35 @@ func main() {
 	fmt.Println("Client started")
 
 	type fire struct {
-		command func(data any) error
-		timeout int64
-		mask    []wclib.ClientStatus
+		command   func(...any) error
+		onsuccess any
+		timeout   int64
+		mask      []wclib.ClientStatus
 	}
 
 	sheduler := make(chan *fire, 3)
 	sheduler <- &fire{
 		command: c.UpdateMsgs,
+		onsuccess: func(tsk wclib.ITask, res []map[string]any) {
+			for _, v := range res {
+				fmt.Println(v)
+			}
+		},
 		timeout: 2000,
 		mask:    []wclib.ClientStatus{wclib.StateConnected},
 	}
 	sheduler <- &fire{
 		command: c.UpdateDevices,
+		onsuccess: func(tsk wclib.ITask, res []map[string]any) {
+			for _, v := range res {
+				fmt.Println(v)
+			}
+		},
 		timeout: 1000,
 		mask:    []wclib.ClientStatus{wclib.StateConnected},
 	}
 	sheduler <- &fire{
-		command: func(data any) error {
+		command: func(...any) error {
 			return c.Disconnect()
 		},
 		timeout: 5000,
@@ -139,7 +136,7 @@ func main() {
 						go func(v *fire) {
 							time.Sleep(time.Duration(v.timeout) * time.Millisecond)
 							if c.IsClientStatusInRange(v.mask) {
-								check(v.command(nil))
+								check(v.command(v.onsuccess))
 							}
 							sheduler <- v
 						}(v)

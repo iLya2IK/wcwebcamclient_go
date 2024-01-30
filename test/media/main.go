@@ -104,15 +104,6 @@ func (rec *mediaRecord) GetStatus() mediaStatus {
 	return rec.status
 }
 
-func AuthSuccess(tsk wclib.ITask) {
-	fmt.Println("SID ", tsk.GetClient().GetSID())
-	record.sequence <- &record
-}
-
-func OnLog(client *wclib.WCClient, str string) {
-	fmt.Println(str)
-}
-
 func OnClientStateChange(c *wclib.WCClient, st wclib.ClientStatus) {
 	switch st {
 	case wclib.StateConnected:
@@ -203,11 +194,6 @@ func OnGetRecordData(task wclib.ITask, data *bytes.Buffer) {
 	record.SetStatus(StatusDownloaded)
 }
 
-func OnRecordDelete(tsk wclib.ITask) {
-	fmt.Printf("Media record %d deleted\n", record.id)
-	record.SetStatus(StatusRIDDeleted)
-}
-
 var proxy_param = flag.String("proxy", "", "Proxy in format [scheme:]//[user[:password]@]host[:port]")
 var host_param = flag.String("host", "https://localhost", "URL for server host in format https://[user[:password]@]hostname[:port]")
 var param_param = flag.Int("port", 0, "Server port")
@@ -231,14 +217,15 @@ func main() {
 
 	c, err := wclib.ClientNew(cfg)
 	check(err)
-	c.SetOnAuthSuccess(AuthSuccess)
-	c.SetOnAddLog(OnLog)
+	c.SetOnAuthSuccess(func(tsk wclib.ITask) {
+		fmt.Println("SID ", tsk.GetClient().GetSID())
+		record.sequence <- &record
+	})
+	c.SetOnAddLog(func(client *wclib.WCClient, str string) {
+		fmt.Println(str)
+	})
 	c.SetOnConnected(OnClientStateChange)
-	c.SetOnUpdateRecords(OnGetRecords)
-	c.SetOnSuccessSaveRecord(OnAfterSaveRecord)
-	c.SetOnReqRecordMeta(OnGetRecordMeta)
 	c.SetOnReqRecordData(OnGetRecordData)
-	c.SetOnSuccessDeleteRecords(OnRecordDelete)
 
 	fmt.Println("Trying to start client")
 
@@ -284,7 +271,7 @@ func main() {
 									if len(ext) > 0 {
 										ext = ext[1:]
 									}
-									if err := c.SaveRecord(fp, fi.Size(), ext, inputfile_param); err != nil {
+									if err := c.SaveRecord(fp, fi.Size(), ext, inputfile_param, OnAfterSaveRecord); err != nil {
 										fmt.Printf("Error on sending record: %v\n", err)
 										record.SetStatus(StatusError)
 									}
@@ -293,7 +280,7 @@ func main() {
 						case StatusSended:
 							{
 								go func() {
-									if err := c.UpdateRecords(nil); err != nil {
+									if err := c.UpdateRecords(OnGetRecords); err != nil {
 										fmt.Printf("Error on updating records: %v\n", err)
 										record.SetStatus(StatusError)
 									}
@@ -302,7 +289,7 @@ func main() {
 						case StatusRIDObtained:
 							{
 								go func() {
-									if err := c.RequestRecordMeta(record.GetRID(), nil); err != nil {
+									if err := c.RequestRecordMeta(record.GetRID(), OnGetRecordMeta); err != nil {
 										fmt.Printf("Error on requesting metadata: %v\n", err)
 										record.SetStatus(StatusError)
 									}
@@ -311,7 +298,7 @@ func main() {
 						case StatusMetaObtained:
 							{
 								go func() {
-									if err := c.RequestRecord(record.GetRID(), nil); err != nil {
+									if err := c.RequestRecord(record.GetRID()); err != nil {
 										fmt.Printf("Error on requesting data: %v\n", err)
 										record.SetStatus(StatusError)
 									}
@@ -321,7 +308,10 @@ func main() {
 							{
 								go func() {
 									arr := [...]int{record.GetRID()}
-									if err := c.DeleteRecords(arr[0:], nil); err != nil {
+									if err := c.DeleteRecords(arr[0:], func(tsk wclib.ITask) {
+										fmt.Printf("Media record %d deleted\n", record.id)
+										record.SetStatus(StatusRIDDeleted)
+									}); err != nil {
 										fmt.Printf("Error on deleting records: %v\n", err)
 										record.SetStatus(StatusError)
 									}

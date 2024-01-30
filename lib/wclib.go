@@ -376,7 +376,7 @@ const STATE_PROXYHOST ClientState = 18
 const STATE_PROXYPORT ClientState = 19
 const STATE_PROXYUSER ClientState = 20
 const STATE_PROXYPWRD ClientState = 21
-const STATE_CONFIG ClientState = 22
+const STATE_CONFIG ClientState = 23
 
 const JSON_RPC_OK string = "OK"
 const JSON_RPC_BAD string = "BAD"
@@ -673,9 +673,26 @@ func (c *StringListThreadSafe) Clear() {
 	c.value = list.New()
 }
 
+/* UpdateCallback */
+
+type jsonCallback struct {
+	callback JSONNotifyEventFunc
+	userdata any /* User-defined additional data, associated with the new task (GetUserData) */
+}
+
+type taskCallback struct {
+	callback TaskNotifyFunc
+	userdata any /* User-defined additional data, associated with the new task (GetUserData) */
+}
+
+type updateCallback struct {
+	callback JSONArrayNotifyEventFunc
+	userdata any /* User-defined additional data, associated with the new task (GetUserData) */
+}
+
 type clientStateRequest struct {
 	state    ClientState
-	userdata any
+	callback *updateCallback
 }
 
 /* WCClient */
@@ -952,6 +969,7 @@ type taskErrorFunc func(tsk ITask)
 type ITask interface {
 	execute(after chan ITask)
 	pushError(err error)
+	internalGetUserData() any
 	getRequest() *http.Request
 	getResponse() *http.Response
 	getOnSuccess() taskSuccessFunc
@@ -959,7 +977,6 @@ type ITask interface {
 
 	GetClient() *WCClient
 	GetUserData() any
-	SetUserData(data any)
 	GetKind() TaskKind
 	GetLastError() error
 }
@@ -979,6 +996,10 @@ type Task struct {
 }
 
 /* Task private methods */
+
+func (tsk *Task) internalGetUserData() any {
+	return tsk.userdata
+}
 
 func (tsk *Task) getOnSuccess() taskSuccessFunc {
 	return tsk.onSuccess
@@ -1119,11 +1140,23 @@ func (tsk *Task) GetClient() *WCClient {
 }
 
 func (tsk *Task) GetUserData() any {
-	return tsk.userdata
-}
+	switch ud := tsk.userdata.(type) {
+	case *updateCallback:
+		{
+			return ud.userdata
+		}
+	case *taskCallback:
+		{
+			return ud.userdata
+		}
+	case *jsonCallback:
+		{
+			return ud.userdata
+		}
+	default:
+		return tsk.userdata
+	}
 
-func (tsk *Task) SetUserData(data any) {
-	tsk.userdata = data
 }
 
 func (tsk *Task) GetKind() TaskKind {
@@ -1675,15 +1708,15 @@ func (c *WCClient) internalStart() {
 				{
 					switch state.state {
 					case STATE_MSGS:
-						go c.updateMsgs(state.userdata)
+						go c.updateMsgs(state.callback)
 					case STATE_DEVICES:
-						go c.updateDevices(state.userdata)
+						go c.updateDevices(state.callback)
 					case STATE_RECORDS:
-						go c.updateRecords(state.userdata)
+						go c.updateRecords(state.callback)
 					case STATE_STREAMS:
-						go c.updateStreams(state.userdata)
+						go c.updateStreams(state.callback)
 					case STATE_CONFIG:
-						go c.updateConfig(state.userdata)
+						go c.updateConfig(state.callback)
 					}
 				}
 			default:
@@ -1851,7 +1884,7 @@ func (c *WCClient) simpleJSONRequest() ([]byte, error) {
 	return b, nil
 }
 
-func (c *WCClient) updateMsgs(data any) error {
+func (c *WCClient) updateMsgs(data *updateCallback) error {
 	umRequest, err := c.initJSONRequest()
 	if err != nil {
 		return err
@@ -1889,7 +1922,7 @@ func (c *WCClient) updateMsgs(data any) error {
 	return nil
 }
 
-func (c *WCClient) updateStreams(data any) error {
+func (c *WCClient) updateStreams(data *updateCallback) error {
 	b, err := c.simpleJSONRequest()
 	if err != nil {
 		return err
@@ -1910,7 +1943,7 @@ func (c *WCClient) updateStreams(data any) error {
 	return nil
 }
 
-func (c *WCClient) updateDevices(data any) error {
+func (c *WCClient) updateDevices(data *updateCallback) error {
 	b, err := c.simpleJSONRequest()
 	if err != nil {
 		return err
@@ -1931,7 +1964,7 @@ func (c *WCClient) updateDevices(data any) error {
 	return nil
 }
 
-func (c *WCClient) updateRecords(data any) error {
+func (c *WCClient) updateRecords(data *updateCallback) error {
 	urRequest, err := c.initJSONRequest()
 	if err != nil {
 		return err
@@ -1961,7 +1994,7 @@ func (c *WCClient) updateRecords(data any) error {
 	return nil
 }
 
-func (c *WCClient) updateConfig(data any) error {
+func (c *WCClient) updateConfig(data *updateCallback) error {
 	b, err := c.simpleJSONRequest()
 	if err != nil {
 		return err
@@ -1984,6 +2017,122 @@ func (c *WCClient) updateConfig(data any) error {
 
 /* WCClient responses */
 
+func parseUpdateCallbackData(data ...any) *updateCallback {
+	cb := updateCallback{}
+	for _, arg := range data {
+		switch t := arg.(type) {
+		case JSONArrayNotifyEventFunc:
+			cb.callback = t
+		case func(ITask, []map[string]any):
+			cb.callback = t
+		default:
+			cb.userdata = t
+		}
+	}
+	return &cb
+}
+
+func parseTaskNotifyCallbackData(data ...any) *taskCallback {
+	cb := taskCallback{}
+	for _, arg := range data {
+		switch t := arg.(type) {
+		case TaskNotifyFunc:
+			cb.callback = t
+		case func(ITask):
+			cb.callback = t
+		default:
+			cb.userdata = t
+		}
+	}
+	return &cb
+}
+
+func parseJSONCallbackData(data ...any) *jsonCallback {
+	cb := jsonCallback{}
+	for _, arg := range data {
+		switch t := arg.(type) {
+		case JSONNotifyEventFunc:
+			cb.callback = t
+		case func(ITask, map[string]any):
+			cb.callback = t
+		default:
+			cb.userdata = t
+		}
+	}
+	return &cb
+}
+
+func parseUserData(data ...any) any {
+	if len(data) > 0 {
+		return data[0]
+	} else {
+		return nil
+	}
+}
+
+func fireUpdateCallback(state ClientState, tsk ITask, arr []map[string]any) {
+	ud := tsk.internalGetUserData()
+	if ud != nil {
+		switch cb := ud.(type) {
+		case *updateCallback:
+			if cb.callback != nil {
+				cb.callback(tsk, arr)
+				return
+			}
+		}
+	}
+
+	tsk.GetClient().lockcbks()
+	defer tsk.GetClient().unlockcbks()
+
+	var client_cb JSONArrayNotifyEventFunc
+
+	switch state {
+	case STATE_MSGS:
+		client_cb = tsk.GetClient().onSuccessUpdateMsgs
+	case STATE_DEVICES:
+		client_cb = tsk.GetClient().onSuccessUpdateDevices
+	case STATE_RECORDS:
+		client_cb = tsk.GetClient().onSuccessUpdateRecords
+	case STATE_STREAMS:
+		client_cb = tsk.GetClient().onSuccessUpdateStreams
+	case STATE_CONFIG:
+		client_cb = tsk.GetClient().onSuccessGetConfig
+	}
+
+	if client_cb != nil {
+		client_cb(tsk, arr)
+	}
+}
+
+func fireNotifyCallback(tsk ITask) bool {
+	ud := tsk.internalGetUserData()
+	if ud != nil {
+		switch cb := ud.(type) {
+		case *taskCallback:
+			if cb.callback != nil {
+				cb.callback(tsk)
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func fireJSONCallback(tsk ITask, obj map[string]any) bool {
+	ud := tsk.internalGetUserData()
+	if ud != nil {
+		switch cb := ud.(type) {
+		case *jsonCallback:
+			if cb.callback != nil {
+				cb.callback(tsk, obj)
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func successGetMsgs(tsk ITask) {
 
 	target := make(map[string]any)
@@ -1995,12 +2144,7 @@ func successGetMsgs(tsk ITask) {
 			return
 		}
 
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
-
-		if tsk.GetClient().onSuccessUpdateMsgs != nil {
-			tsk.GetClient().onSuccessUpdateMsgs(tsk, arr)
-		}
+		fireUpdateCallback(STATE_MSGS, tsk, arr)
 	}
 }
 
@@ -2015,12 +2159,7 @@ func successGetRecords(tsk ITask) {
 			return
 		}
 
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
-
-		if tsk.GetClient().onSuccessUpdateRecords != nil {
-			tsk.GetClient().onSuccessUpdateRecords(tsk, arr)
-		}
+		fireUpdateCallback(STATE_RECORDS, tsk, arr)
 	}
 }
 
@@ -2035,12 +2174,7 @@ func successGetConfig(tsk ITask) {
 			return
 		}
 
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
-
-		if tsk.GetClient().onSuccessGetConfig != nil {
-			tsk.GetClient().onSuccessGetConfig(tsk, arr)
-		}
+		fireUpdateCallback(STATE_CONFIG, tsk, arr)
 	}
 }
 
@@ -2055,12 +2189,7 @@ func successGetDevices(tsk ITask) {
 			return
 		}
 
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
-
-		if tsk.GetClient().onSuccessUpdateDevices != nil {
-			tsk.GetClient().onSuccessUpdateDevices(tsk, arr)
-		}
+		fireUpdateCallback(STATE_DEVICES, tsk, arr)
 	}
 }
 
@@ -2075,12 +2204,7 @@ func successGetStreams(tsk ITask) {
 			return
 		}
 
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
-
-		if tsk.GetClient().onSuccessUpdateStreams != nil {
-			tsk.GetClient().onSuccessUpdateStreams(tsk, arr)
-		}
+		fireUpdateCallback(STATE_STREAMS, tsk, arr)
 	}
 }
 
@@ -2115,11 +2239,13 @@ func successSendMsgs(tsk ITask) {
 	target := make(map[string]any)
 
 	if tsk.(*Task).successJSONresponse(target) {
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
+		if fireNotifyCallback(tsk) {
+			tsk.GetClient().lockcbks()
+			defer tsk.GetClient().unlockcbks()
 
-		if tsk.GetClient().onSuccessSendMsg != nil {
-			tsk.GetClient().onSuccessSendMsg(tsk)
+			if tsk.GetClient().onSuccessSendMsg != nil {
+				tsk.GetClient().onSuccessSendMsg(tsk)
+			}
 		}
 	}
 }
@@ -2128,11 +2254,13 @@ func successSetConfig(tsk ITask) {
 	target := make(map[string]any)
 
 	if tsk.(*Task).successJSONresponse(target) {
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
+		if fireNotifyCallback(tsk) {
+			tsk.GetClient().lockcbks()
+			defer tsk.GetClient().unlockcbks()
 
-		if tsk.GetClient().onSuccessSetConfig != nil {
-			tsk.GetClient().onSuccessSetConfig(tsk)
+			if tsk.GetClient().onSuccessSetConfig != nil {
+				tsk.GetClient().onSuccessSetConfig(tsk)
+			}
 		}
 	}
 }
@@ -2141,11 +2269,13 @@ func successSaveRecord(tsk ITask) {
 	target := make(map[string]any)
 
 	if tsk.(*Task).successJSONresponse(target) {
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
+		if fireNotifyCallback(tsk) {
+			tsk.GetClient().lockcbks()
+			defer tsk.GetClient().unlockcbks()
 
-		if tsk.GetClient().onSuccessSaveRecord != nil {
-			tsk.GetClient().onSuccessSaveRecord(tsk)
+			if tsk.GetClient().onSuccessSaveRecord != nil {
+				tsk.GetClient().onSuccessSaveRecord(tsk)
+			}
 		}
 	}
 }
@@ -2154,11 +2284,13 @@ func successReqRecordMeta(tsk ITask) {
 	target := make(map[string]any)
 
 	if tsk.(*Task).successJSONresponse(target) {
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
+		if fireJSONCallback(tsk, target) {
+			tsk.GetClient().lockcbks()
+			defer tsk.GetClient().unlockcbks()
 
-		if tsk.GetClient().onSuccessRequestRecordMeta != nil {
-			tsk.GetClient().onSuccessRequestRecordMeta(tsk, target)
+			if tsk.GetClient().onSuccessRequestRecordMeta != nil {
+				tsk.GetClient().onSuccessRequestRecordMeta(tsk, target)
+			}
 		}
 	}
 }
@@ -2167,11 +2299,13 @@ func successDeleteRecords(tsk ITask) {
 	target := make(map[string]any)
 
 	if tsk.(*Task).successJSONresponse(target) {
-		tsk.GetClient().lockcbks()
-		defer tsk.GetClient().unlockcbks()
+		if fireNotifyCallback(tsk) {
+			tsk.GetClient().lockcbks()
+			defer tsk.GetClient().unlockcbks()
 
-		if tsk.GetClient().onSuccessDeleteRecords != nil {
-			tsk.GetClient().onSuccessDeleteRecords(tsk)
+			if tsk.GetClient().onSuccessDeleteRecords != nil {
+				tsk.GetClient().onSuccessDeleteRecords(tsk)
+			}
 		}
 	}
 }
@@ -2363,6 +2497,18 @@ func (c *WCClient) SetOnGetConfig(event JSONArrayNotifyEventFunc) {
 }
 
 /*
+Set new callback for the "The request to set a new config has been completed.
+The response has arrived" event.
+
+	`event` is the reference to the callback function
+*/
+func (c *WCClient) SetOnSetConfig(event TaskNotifyFunc) {
+	c.lockcbks()
+	defer c.unlockcbks()
+	c.onSuccessSetConfig = event
+}
+
+/*
 Set new callback for the "The request to delete records has been completed.
 The response has arrived" event.
 
@@ -2549,9 +2695,10 @@ func (c *WCClient) AuthFromHostUrl() error {
 /*
 Launch request to authorize the client on the server host.
 
-	See protocol request `authorize.json`. If the specified `aLogin` or `aPwrd` are empty
-	strings, the client tries to connect to the host using the username section
-	from the host URL (\sa SetHostURL)
+	See protocol request `authorize.json`. If the specified
+	`aLogin` or `aPwrd` are empty strings, the client tries to
+	connect to the host using the username section from the host
+	URL (\sa SetHostURL)
 
 	`aLogin` is the name of the user on the server.
 	`aPwrd` is the password of the user on the server.
@@ -2673,20 +2820,25 @@ Reset the selected client state.
 	STATE_MSGSSTAMP - clear the timestamp for messages (the *stamp* parameter in
 	 `getMsgs.json` request),
 	STATE_STREAMS - update the list of streams (see also `getStreams.json`),
+	STATE_CONFIG - get the current client config (see also `getConfig.json`),
 
-	Resetting STATE_DEVICES, STATE_RECORDS, STATE_MSGS, STATE_STREAMS states will update
-	the selected state from the client's thread.
+	Resetting STATE_DEVICES, STATE_RECORDS, STATE_MSGS, STATE_STREAMS, STATE_CONFIG
+	states will update the selected state from the client's thread.
 	During the execution of main loop, requests `getDevicesOnline.json`,
-	`getRecordCount.json`, `getMsgs.json` and `getStreams.json` will be generated and
-	launched, respectively.
+	`getRecordCount.json`, `getMsgs.json`, `getStreams.json` and `getConfig.json`
+	will be generated and launched, respectively.
 
 	`aStateId` is the selected client state,
-	`userdata` is the additional user data that passed to the new task (GetUserData)
-	when the new update request created
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOn... methods). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 
 	`return` nil on success or the error object.
 */
-func (c *WCClient) InvalidateState(aStateId ClientState, userdata any) error {
+func (c *WCClient) InvalidateState(aStateId ClientState, callback ...any) error {
 	var err error
 	switch aStateId {
 	case STATE_LOG:
@@ -2694,13 +2846,15 @@ func (c *WCClient) InvalidateState(aStateId ClientState, userdata any) error {
 	case STATE_ERROR:
 		c.ClearError()
 	case STATE_STREAMS:
-		err = c.UpdateStreams(userdata)
+		err = c.UpdateStreams(callback...)
 	case STATE_DEVICES:
-		err = c.UpdateDevices(userdata)
+		err = c.UpdateDevices(callback...)
 	case STATE_RECORDS:
-		err = c.UpdateRecords(userdata)
+		err = c.UpdateRecords(callback...)
 	case STATE_MSGS:
-		err = c.UpdateMsgs(userdata)
+		err = c.UpdateMsgs(callback...)
+	case STATE_CONFIG:
+		err = c.GetConfig(callback...)
 	case STATE_SENDWITHSYNC:
 		c.needtosync.SetValue(false)
 	case STATE_MSGSSTAMP:
@@ -2718,15 +2872,20 @@ func (c *WCClient) InvalidateState(aStateId ClientState, userdata any) error {
 /*
 Update the list of streams (see also `getStreams.json`).
 
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnUpdateStreams method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) UpdateStreams(data any) error {
+func (c *WCClient) UpdateStreams(callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- &clientStateRequest{STATE_STREAMS, data}
+	c.states <- &clientStateRequest{STATE_STREAMS, parseUpdateCallbackData(callback...)}
 
 	return nil
 }
@@ -2734,15 +2893,20 @@ func (c *WCClient) UpdateStreams(data any) error {
 /*
 Update the list of devices (see also `getDevicesOnline.json`).
 
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnUpdateDevices method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) UpdateDevices(data any) error {
+func (c *WCClient) UpdateDevices(callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- &clientStateRequest{STATE_DEVICES, data}
+	c.states <- &clientStateRequest{STATE_DEVICES, parseUpdateCallbackData(callback...)}
 
 	return nil
 }
@@ -2753,15 +2917,41 @@ Update the list of media records (see also `getRecordCount.json`).
 	According to the results of the request, the STATE_RECORDSSTAMP state will be
 	updated automatically.
 
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnUpdateRecords method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) UpdateRecords(data any) error {
+func (c *WCClient) UpdateRecords(callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- &clientStateRequest{STATE_RECORDS, data}
+	c.states <- &clientStateRequest{STATE_RECORDS, parseUpdateCallbackData(callback...)}
+
+	return nil
+}
+
+/*
+Get configuration from the server for authorized client (sa `getConfig.json` request).
+
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnGetConfig method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
+	`return` nil on success or the error object.
+*/
+func (c *WCClient) GetConfig(callback ...any) error {
+	if st := c.GetClientStatus(); st != StateConnected {
+		return ThrowErrWrongStatus(st)
+	}
+
+	c.states <- &clientStateRequest{STATE_MSGS, parseUpdateCallbackData(callback...)}
 
 	return nil
 }
@@ -2773,15 +2963,20 @@ Get new messages from the server.
 	According to the results of the request, the STATE_MSGSSTAMP state will be updated
 	automatically.
 
-	`data` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnUpdateMsgs method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONArrayNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONArrayNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) UpdateMsgs(data any) error {
+func (c *WCClient) UpdateMsgs(callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
 
-	c.states <- &clientStateRequest{STATE_MSGS, data}
+	c.states <- &clientStateRequest{STATE_MSGS, parseUpdateCallbackData(callback...)}
 
 	return nil
 }
@@ -2797,10 +2992,15 @@ Send a new message(s) to the server from device.
 	2. *OutMessageStruct - to send one outgoing message
 	3. []map[string]any
 	4. []*OutMessageStruct - to send several outgoing messages
-	`data` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnSuccessSendMsg method). The `callback` can be passed as:
+	1. a pair of values - a callback (TaskNotifyFunc) and user data (any)
+	2. just a reference to a callback of type TaskNotifyFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) SendMsgs(aMsg any, data any) error {
+func (c *WCClient) SendMsgs(aMsg any, callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -2886,7 +3086,7 @@ func (c *WCClient) SendMsgs(aMsg any, data any) error {
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  data,
+		userdata:  parseTaskNotifyCallbackData(callback...),
 		onSuccess: successSendMsgs,
 		onError:   errorCommon})
 
@@ -2901,10 +3101,15 @@ Save the media record (see also `addRecord.json`).
 	`aBuf` is the user-specified Reader with the frame data
 	`aBufSize` is the frame size, mandatory if the Reader is not provided content length by itself
 	`meta` is additional metadata for the saving media record
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnSuccessSaveRecord method). The `callback` can be passed as:
+	1. a pair of values - a callback (TaskNotifyFunc) and user data (any)
+	2. just a reference to a callback of type TaskNotifyFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, userdata any) error {
+func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		if aBuf != nil {
 			aBuf.Close()
@@ -2926,7 +3131,7 @@ func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, u
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseTaskNotifyCallbackData(callback...),
 		onSuccess: successSaveRecord,
 		onError:   errorCommon})
 
@@ -2939,10 +3144,15 @@ func (c *WCClient) SaveRecord(aBuf io.ReadCloser, aBufSize int64, meta string, u
 Get the metadata for the media record (see also `getRecordMeta.json`).
 
 	`rid` is the id of the media record
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnReqRecordMeta method). The `callback` can be passed as:
+	1. a pair of values - a callback (JSONNotifyEventFunc) and user data (any)
+	2. just a reference to a callback of type JSONNotifyEventFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) RequestRecordMeta(rid int, userdata any) error {
+func (c *WCClient) RequestRecordMeta(rid int, callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -2965,7 +3175,7 @@ func (c *WCClient) RequestRecordMeta(rid int, userdata any) error {
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseJSONCallbackData(callback...),
 		onSuccess: successReqRecordMeta,
 		onError:   errorCommon})
 
@@ -2981,7 +3191,7 @@ Get the blob data of the media record (see also `getRecordData.json`).
 	`userdata` is the additional user data that passed to the new task (GetUserData)
 	`return` nil on success or the error object.
 */
-func (c *WCClient) RequestRecord(rid int, userdata any) error {
+func (c *WCClient) RequestRecord(rid int, userdata ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -2997,7 +3207,7 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseUserData(userdata...),
 		onSuccess: successReqRecordData,
 		onError:   errorCommon})
 
@@ -3010,10 +3220,15 @@ func (c *WCClient) RequestRecord(rid int, userdata any) error {
 Delete specified media records for authorized client (see also `deleteRecords.json`).
 
 	`aIndices` is the array filled with the IDs of the records to be deleted
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnSuccessDeleteRecords method). The `callback` can be passed as:
+	1. a pair of values - a callback (TaskNotifyFunc) and user data (any)
+	2. just a reference to a callback of type TaskNotifyFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) DeleteRecords(aIndices []int, userdata any) error {
+func (c *WCClient) DeleteRecords(aIndices []int, callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -3037,7 +3252,7 @@ func (c *WCClient) DeleteRecords(aIndices []int, userdata any) error {
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseTaskNotifyCallbackData(callback...),
 		onSuccess: successDeleteRecords,
 		onError:   errorCommon})
 
@@ -3054,7 +3269,7 @@ Launch output stream for authorized client (sa `input.raw` request).
 	`userdata` is the additional user data that passed to the new task (GetUserData)
 	`return` nil on success or the error object.
 */
-func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) error {
+func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -3075,7 +3290,7 @@ func (c *WCClient) LaunchOutStream(aSubProto string, aDelta int, userdata any) e
 		client:    c,
 		kind:      TaskOutputStream,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseUserData(userdata...),
 		onSuccess: successIOFinished,
 		onError:   errorIOCommon})
 
@@ -3116,7 +3331,7 @@ Launch incoming stream for authorized client (sa `output.raw` request).
 	`userdata` is the additional user data that passed to the new task (GetUserData)
 	`return` nil on success or the error object.
 */
-func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc, userdata any) error {
+func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc, userdata ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -3134,7 +3349,7 @@ func (c *WCClient) LaunchInStream(aDeviceName string, onNewFrame TaskNotifyFunc,
 		client:    c,
 		kind:      TaskInputStream,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseUserData(userdata...),
 		onSuccess: successIOFinished,
 		onError:   errorIOCommon})
 
@@ -3177,30 +3392,19 @@ func (c *WCClient) StopStreaming() {
 }
 
 /*
-Get configuration from the server for authorized client (sa `getConfig.json` request).
-
-	`userdata` is the additional user data that passed to the new task (GetUserData)
-	`return` nil on success or the error object.
-*/
-func (c *WCClient) GetConfig(userdata any) error {
-	if st := c.GetClientStatus(); st != StateConnected {
-		return ThrowErrWrongStatus(st)
-	}
-
-	c.states <- &clientStateRequest{STATE_MSGS, userdata}
-
-	return nil
-}
-
-/*
 Send configuration of authorized client to the server (sa `setConfig.json` request).
 
 	`aStr` is the array of configuration elements. The possible types of each element
 	in this array are: map[string]any or *OutConfigElementStruct
-	`userdata` is the additional user data that passed to the new task (GetUserData)
+	The `callback` is the callback data that is used upon successful completion.
+	if a null or empty value is set, the client calls a predefined corresponding function
+	(\sa WCClient.SetOnSetConfig method). The `callback` can be passed as:
+	1. a pair of values - a callback (TaskNotifyFunc) and user data (any)
+	2. just a reference to a callback of type TaskNotifyFunc
+	3. user data (any) - \sa ITask.GetUserData
 	`return` nil on success or the error object.
 */
-func (c *WCClient) SetConfig(aStr []any, userdata any) error {
+func (c *WCClient) SetConfig(aStr []any, callback ...any) error {
 	if st := c.GetClientStatus(); st != StateConnected {
 		return ThrowErrWrongStatus(st)
 	}
@@ -3250,7 +3454,7 @@ func (c *WCClient) SetConfig(aStr []any, userdata any) error {
 
 	tsk := &(Task{client: c,
 		request:   req,
-		userdata:  userdata,
+		userdata:  parseTaskNotifyCallbackData(callback...),
 		onSuccess: successSetConfig,
 		onError:   errorCommon})
 

@@ -151,10 +151,6 @@ func AuthSuccess(tsk wclib.ITask) {
 	appStream.SetStatus(StatusAuthorized)
 }
 
-func OnLog(client *wclib.WCClient, str string) {
-	fmt.Println(str)
-}
-
 func OnClientStateChange(c *wclib.WCClient, st wclib.ClientStatus) {
 	switch st {
 	case wclib.StateConnected:
@@ -207,7 +203,9 @@ func main() {
 	c, err := wclib.ClientNew(cfg)
 	check(err)
 	c.SetOnAuthSuccess(AuthSuccess)
-	c.SetOnAddLog(OnLog)
+	c.SetOnAddLog(func(client *wclib.WCClient, str string) {
+		fmt.Println(str)
+	})
 	c.SetOnConnected(OnClientStateChange)
 
 	c.SetOnAfterLaunchOutStream(onIOTaskStarted)
@@ -266,7 +264,7 @@ func main() {
 
 								go func() {
 									fmt.Println("Starting output stream...")
-									if err := c.LaunchOutStream("RAW_"+IMAGES_EXT, MAX_DELTA, nil); err != nil {
+									if err := c.LaunchOutStream("RAW_"+IMAGES_EXT, MAX_DELTA); err != nil {
 										fmt.Printf("Error on starting stream: %v\n", err)
 										appStream.SetStatus(StatusError)
 									}
