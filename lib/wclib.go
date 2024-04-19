@@ -1393,6 +1393,34 @@ func ClientCfgNew() *WCClientConfig {
 
 /* WCClientConfig public methods */
 
+// Clone config from other instance
+func (c *WCClientConfig) AssignFrom(src *WCClientConfig) error {
+	if c.locked {
+		return ThrowErrLockedConfig()
+	}
+
+	if src.hosturl != nil {
+		c.hosturl, _ = url.Parse(src.hosturl.String())
+	} else {
+		c.hosturl = nil
+	}
+	if src.proxy != nil {
+		c.proxy, _ = url.Parse(src.proxy.String())
+	} else {
+		c.proxy = nil
+	}
+
+	c.host = src.host
+	c.port = src.port
+
+	c.device = src.device
+	c.meta = src.meta
+
+	c.secure = src.secure
+
+	return nil
+}
+
 // Set new meta data for the device (sa. "authorize.json" - WCPD)
 func (c *WCClientConfig) SetMeta(val string) error {
 	if c.locked {
