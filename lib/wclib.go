@@ -469,6 +469,8 @@ func ClientStatusText(status ClientStatus) string {
 	switch status {
 	case StateWaiting:
 		return "Waiting"
+	case StateConnectedAuthorization:
+		return "Authorization..."
 	case StateConnected:
 		return "Connected"
 	case StateDisconnected:
