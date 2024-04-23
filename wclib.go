@@ -4,7 +4,7 @@
 /* Copyright 2024 Ilya Medvedkov                                 */
 /*===============================================================*/
 
-package wclib
+package wcwebcamclient_go
 
 import (
 	"bytes"
