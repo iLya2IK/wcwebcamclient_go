@@ -2722,17 +2722,17 @@ func (c *WCClient) GetLstRecStamp() string {
 
 // Set the timestamp of the last received message
 func (c *WCClient) SetLstMsgStamp(value string) {
-	return c.lmsgstamp.SetValue(value)
+	c.lmsgstamp.SetValue(value)
 }
 
 // Reset the timestamp of the last received message to the sync point
 func (c *WCClient) SetLstMsgStampToSyncPoint() {
-	return c.lmsgstamp.SetValue(REST_SYNC_MSG)
+	c.lmsgstamp.SetValue(REST_SYNC_MSG)
 }
 
 // Set the timestamp of the last received media record
 func (c *WCClient) SetLstRecStamp(value string) {
-	return c.lrecstamp.SetValue(value)
+	c.lrecstamp.SetValue(value)
 }
 
 /*
