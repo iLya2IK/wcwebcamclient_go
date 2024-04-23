@@ -15,7 +15,7 @@ An example of an Android application for controlling external devices, chatting 
 Use go get -u to download and install the prebuilt package.
 
 ```
-go get -u github.com/ilya2ik/wcwebcamclient_go/lib
+go get -u github.com/ilya2ik/wcwebcamclient_go/wclib
 ```
 
 
@@ -36,7 +36,7 @@ import (
    "sync"
    "time"
 
-   wclib "github.com/ilya2ik/wcwebcamclient_go/lib"
+   wclib "github.com/ilya2ik/wcwebcamclient_go/wclib"
 )
 
 /* Relative path to files */
@@ -321,7 +321,7 @@ import (
    "sync"
    "time"
 
-   wclib "github.com/ilya2ik/wcwebcamclient_go/lib"
+   wclib "github.com/ilya2ik/wcwebcamclient_go/wclib"
 )
 
 /* Relative path to save output data */
