@@ -2174,6 +2174,24 @@ func successGetMsgs(tsk ITask) {
 			return
 		}
 
+		if len(arr) > 0 {
+			client := tsk.GetClient();
+			maxstamp := client.GetLstMsgStamp()
+			for _, msg := range arr {
+				_any, ok := msg[JSON_RPC_STAMP]
+				if ok {
+					dt := reflect.TypeOf(_any).Kind()
+					if dt == reflect.String {
+						v := _any.(string)
+						if maxstamp < v {
+							maxstamp = v
+						}
+					}
+				}
+			}
+			client.SetLstMsgStamp(maxstamp)
+		}
+
 		fireUpdateCallback(STATE_MSGS, tsk, arr)
 	}
 }
@@ -2187,6 +2205,24 @@ func successGetRecords(tsk ITask) {
 		if err != nil {
 			tsk.pushError(err)
 			return
+		}
+
+		if len(arr) > 0 {
+			client := tsk.GetClient();
+			maxstamp := client.GetLstRecStamp()
+			for _, msg := range arr {
+				_any, ok := msg[JSON_RPC_STAMP]
+				if ok {
+					dt := reflect.TypeOf(_any).Kind()
+					if dt == reflect.String {
+						v := _any.(string)
+						if maxstamp < v {
+							maxstamp = v
+						}
+					}
+				}
+			}
+			client.SetLstRecStamp(maxstamp)
 		}
 
 		fireUpdateCallback(STATE_RECORDS, tsk, arr)
@@ -2682,6 +2718,21 @@ func (c *WCClient) GetLstMsgStamp() string {
 // The timestamp of the last received media record
 func (c *WCClient) GetLstRecStamp() string {
 	return c.lrecstamp.GetValue()
+}
+
+// Set the timestamp of the last received message
+func (c *WCClient) SetLstMsgStamp(value string) {
+	return c.lmsgstamp.SetValue(value)
+}
+
+// Reset the timestamp of the last received message to the sync point
+func (c *WCClient) SetLstMsgStampToSyncPoint() {
+	return c.lmsgstamp.SetValue(REST_SYNC_MSG)
+}
+
+// Set the timestamp of the last received media record
+func (c *WCClient) SetLstRecStamp(value string) {
+	return c.lrecstamp.SetValue(value)
 }
 
 /*
