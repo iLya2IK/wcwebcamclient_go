@@ -1704,6 +1704,15 @@ func (c *WCClient) setLastError(what string) {
 }
 
 func (c *WCClient) internalStart() {
+	/*close(c.terminate)
+	close(c.finished)
+	close(c.ferr)
+	close(c.states)
+
+	c.terminate = make(chan bool, 2)
+	c.finished = make(chan ITask, 16)
+	c.ferr = make(chan ITask, 16)
+	c.states = make(chan *clientStateRequest, 32)*/
 
 	for c.Working() {
 		if c.inclient != nil {
@@ -2745,7 +2754,7 @@ Launch client.
 */
 func (c *WCClient) Start() error {
 	switch st := c.GetClientStatus(); st {
-	case StateWaiting:
+	case StateWaiting, StateDisconnected:
 		c.start()
 
 		go c.internalStart()
